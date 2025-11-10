@@ -1,0 +1,25 @@
+# Flask Core
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-Bcrypt==1.0.1
+Flask-CORS==4.0.0
+
+# Database
+SQLAlchemy==2.0.23
+
+# Environment Management
+python-dotenv==1.0.0
+
+# Resume Analysis Dependencies (from original project)
+google-generativeai==0.3.1
+PyMuPDF==1.23.8
+
+# PDF Processing (alternative/additional)
+PyPDF2==3.0.1
+
+# NLP & Text Processing
+nltk==3.8.1
+
+# Utilities
+Werkzeug==3.0.1

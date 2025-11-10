@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Synapse{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-center min-h-[calc(100vh-14rem)]">
+    <div class="w-full max-w-md">
+        <div class="card">
+            <div class="card-header text-center">
+                <h2 class="text-2xl font-bold">Welcome Back</h2>
+                <p class="text-muted-foreground">Login to continue your journey with Synapse</p>
+            </div>
+            <div class="card-content">
+                <form method="POST" action="{{ url_for('login') }}" class="space-y-4">
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                        <input type="email" id="email" name="email" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" placeholder="your@email.com">
+                    </div>
+                    
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                        <input type="password" id="password" name="password" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" placeholder="Enter your password">
+                    </div>
+                    
+                    <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                        Login
+                    </button>
+                </form>
+            </div>
+            <div class="card-footer text-center text-sm text-muted-foreground">
+                <p>Don't have an account?</p>
+                <div class="mt-2 space-x-2">
+                    <a href="{{ url_for('register_jobseeker') }}" class="font-medium text-primary hover:text-primary/90">Register as Job Seeker</a>
+                    <span>|</span>
+                    <a href="{{ url_for('register_company') }}" class="font-medium text-primary hover:text-primary/90">Register as Company</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Skipped Jobs - Synapse{% endblock %}
+
+{% block content %}
+<div class="skipped-container">
+    <h2 class="page-title">Skipped Jobs</h2>
+    <p class="page-subtitle">Jobs you've passed on - you can still apply!</p>
+    
+    {% if skipped_jobs %}
+        <div class="jobs-grid">
+            {% for item in skipped_jobs %}
+                {% set job = item.job %}
+                {% set match = item.match %}
+                
+                <div class="match-card" data-match-id="{{ match.id }}">
+                    <div class="match-header">
+                        <h3>{{ job.title }}</h3>
+                        <span class="job-type-badge">{{ job.job_type }}</span>
+                    </div>
+                    
+                    <div class="match-company">
+                        <strong>{{ job.company.company_name }}</strong>
+                    </div>
+                    
+                    <div class="match-location">
+                        📍 {{ job.location }}
+                    </div>
+                    
+                    {% if job.salary_range %}
+                        <div class="match-salary">
+                            💰 {{ job.salary_range }}
+                        </div>
+                    {% endif %}
+                    
+                    <div class="match-description">
+                        <p>{{ job.description_text[:200] }}{% if job.description_text|length > 200 %}...{% endif %}</p>
+                    </div>
+                    
+                    {% if job.requirements %}
+                        <div class="match-requirements">
+                            <strong>Requirements:</strong>
+                            <p>{{ job.requirements[:150] }}{% if job.requirements|length > 150 %}...{% endif %}</p>
+                        </div>
+                    {% endif %}
+                    
+                    <div class="match-actions">
+                        <button class="btn btn-primary btn-reapply" data-job-id="{{ job.id }}">
+                            ✓ Apply Now
+                        </button>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <h3>No skipped jobs!</h3>
+            <p>Jobs you skip will appear here if you want to reconsider them later.</p>
+            <a href="{{ url_for('discover') }}" class="btn btn-primary">Discover Jobs</a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+// Handle reapply button clicks
+document.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('btn-reapply')) {
+        const jobId = e.target.getAttribute('data-job-id');
+        
+        if (!confirm('Are you sure you want to apply to this job?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/reapply/${jobId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                alert('Application submitted! Check your Matches page.');
+                // Remove the card from view
+                const card = e.target.closest('.match-card');
+                card.style.opacity = '0';
+                setTimeout(() => card.remove(), 300);
+            } else {
+                alert(data.error || 'Failed to apply');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('An error occurred');
+        }
+    }
+});
+</script>
+{% endblock %}

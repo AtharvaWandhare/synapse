@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}Applicants - Synapse{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header -->
+    <div class="mb-8">
+        <h2 class="text-3xl font-bold text-gray-900">Job Applicants</h2>
+        <p class="text-gray-600 mt-1">Candidates who liked your job postings</p>
+    </div>
+    
+    {% if applicants %}
+        <!-- Applicants Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {% for applicant in applicants %}
+                <div class="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow" data-match-id="{{ applicant.match.id }}">
+                    <!-- Header with Avatar and Info -->
+                    <div class="flex items-start gap-4 mb-4">
+                        <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
+                            {{ applicant.user.full_name[0]|upper }}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="text-lg font-semibold text-gray-900 truncate">{{ applicant.user.full_name }}</h3>
+                            <p class="text-sm text-gray-600 truncate">{{ applicant.user.email }}</p>
+                            
+                            <!-- Status Badge -->
+                            <div class="mt-2">
+                                {% if applicant.status == 'accepted' %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                                        </svg>
+                                        Accepted
+                                    </span>
+                                {% elif applicant.status == 'rejected' %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                                        </svg>
+                                        Rejected
+                                    </span>
+                                {% else %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                        Pending Review
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Applied Job -->
+                    <div class="bg-gray-50 rounded-lg p-3 mb-4">
+                        <p class="text-xs font-medium text-gray-600 mb-1">Applied for</p>
+                        <p class="text-sm font-semibold text-gray-900">{{ applicant.job.title }}</p>
+                        <p class="text-xs text-gray-500 mt-1">Matched on {{ applicant.matched_at.strftime('%B %d, %Y') }}</p>
+                    </div>
+                    
+                    <!-- Resume Information -->
+                    {% if applicant.resume %}
+                        <div class="mb-4">
+                            <!-- Resume Score -->
+                            {% if applicant.resume.analysis_score %}
+                                <div class="flex items-center justify-between mb-3">
+                                    <span class="text-sm font-medium text-gray-700">Resume Score</span>
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                            <div class="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full" style="width: {{ applicant.resume.analysis_score }}%"></div>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-900">{{ applicant.resume.analysis_score }}/100</span>
+                                    </div>
+                                </div>
+                            {% endif %}
+                            
+                            <!-- Profile Summary -->
+                            {% if applicant.resume.profile_summary_text %}
+                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                    <p class="text-xs font-medium text-blue-900 mb-1">Profile Summary</p>
+                                    <p class="text-xs text-blue-800 leading-relaxed line-clamp-3">{{ applicant.resume.profile_summary_text }}</p>
+                                </div>
+                            {% endif %}
+                            
+                            <!-- Extracted Skills -->
+                            {% if applicant.resume.extracted_json %}
+                                {% set extracted = applicant.resume.extracted_json | load_json %}
+                                {% if extracted.skills %}
+                                    <div class="mt-3">
+                                        <p class="text-xs font-medium text-gray-700 mb-2">Skills</p>
+                                        <div class="flex flex-wrap gap-1">
+                                            {% for skill in extracted.skills[:6] %}
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                                                    {{ skill }}
+                                                </span>
+                                            {% endfor %}
+                                            {% if extracted.skills|length > 6 %}
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
+                                                    +{{ extracted.skills|length - 6 }} more
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4 text-center">
+                            <svg class="w-8 h-8 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            <p class="text-xs text-gray-600">No resume uploaded yet</p>
+                        </div>
+                    {% endif %}
+                    
+                    <!-- Actions -->
+                    <div class="flex flex-col gap-2 pt-4 border-t border-gray-100">
+                        <a href="{{ url_for('candidate_profile', user_id=applicant.user.id) }}" class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                            </svg>
+                            View Full Profile
+                        </a>
+                        
+                        <div class="flex items-center gap-2">
+                            <a href="mailto:{{ applicant.user.email }}" class="flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                </svg>
+                                Contact
+                            </a>
+                            
+                            {% if not applicant.status or applicant.status == 'pending' %}
+                                <button class="btn-accept px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm font-medium" data-match-id="{{ applicant.match.id }}">
+                                    Accept
+                                </button>
+                                <button class="btn-reject px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm font-medium" data-match-id="{{ applicant.match.id }}">
+                                    Reject
+                                </button>
+                            {% elif applicant.status == 'accepted' %}
+                                <button class="btn-reject px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm font-medium" data-match-id="{{ applicant.match.id }}">
+                                    Reject
+                                </button>
+                            {% elif applicant.status == 'rejected' %}
+                                <button class="btn-accept px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm font-medium" data-match-id="{{ applicant.match.id }}">
+                                    Accept
+                                </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <!-- Empty State -->
+        <div class="bg-white rounded-lg border border-gray-200 p-12">
+            <div class="text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
+                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">No applicants yet</h3>
+                <p class="text-gray-600 mb-6">Once job seekers start liking your jobs, they'll appear here!</p>
+                <a href="{{ url_for('my_jobs') }}" class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-gray-900 hover:bg-gray-800">
+                    View My Jobs
+                </a>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+// Handle Accept/Reject button clicks
+document.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('btn-accept') || e.target.classList.contains('btn-reject')) {
+        const button = e.target;
+        const matchId = button.getAttribute('data-match-id');
+        const status = button.classList.contains('btn-accept') ? 'accepted' : 'rejected';
+        
+        if (!confirm(`Are you sure you want to ${status === 'accepted' ? 'accept' : 'reject'} this application?`)) {
+            return;
+        }
+        
+        button.disabled = true;
+        button.textContent = status === 'accepted' ? 'Accepting...' : 'Rejecting...';
+        
+        try {
+            const response = await fetch('/api/company/update-application-status', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    match_id: matchId,
+                    status: status
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                location.reload(); // Reload to update the UI
+            } else {
+                alert(data.error || 'Failed to update application status');
+                button.disabled = false;
+                button.textContent = status === 'accepted' ? 'Accept' : 'Reject';
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('An error occurred');
+            button.disabled = false;
+            button.textContent = status === 'accepted' ? 'Accept' : 'Reject';
+        }
+    }
+});
+</script>
+{% endblock %}

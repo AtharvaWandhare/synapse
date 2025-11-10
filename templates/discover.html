@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Discover Jobs - Synapse{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">Discover Your Next Opportunity</h2>
+            <p class="text-gray-600 mt-1">Swipe right to like, left to pass. Use arrow keys for quick navigation.</p>
+        </div>
+        <button id="filter-toggle-btn" class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium rounded-md text-gray-700">
+            🔍 Filters
+        </button>
+    </div>
+
+    <!-- Filter Sidebar -->
+    <div id="filter-sidebar" class="fixed top-0 right-0 z-40 h-screen p-6 overflow-y-auto transition-transform translate-x-full bg-white w-80 shadow-xl border-l border-gray-200">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-semibold text-gray-900">Filters</h3>
+            <button id="filter-close-btn" type="button" class="text-gray-400 bg-transparent hover:bg-gray-100 hover:text-gray-900 rounded-lg text-sm p-1.5">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
+            </button>
+        </div>
+        <div class="space-y-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-3">Job Type</label>
+                <div class="space-y-2">
+                    <label class="flex items-center text-gray-700"><input type="checkbox" name="job_type" value="Full-time" checked class="h-4 w-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"> <span class="ml-2">Full-time</span></label>
+                    <label class="flex items-center text-gray-700"><input type="checkbox" name="job_type" value="Part-time" checked class="h-4 w-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"> <span class="ml-2">Part-time</span></label>
+                    <label class="flex items-center text-gray-700"><input type="checkbox" name="job_type" value="Internship" checked class="h-4 w-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"> <span class="ml-2">Internship</span></label>
+                    <label class="flex items-center text-gray-700"><input type="checkbox" name="job_type" value="Contract" checked class="h-4 w-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"> <span class="ml-2">Contract</span></label>
+                    <label class="flex items-center text-gray-700"><input type="checkbox" name="job_type" value="Remote" checked class="h-4 w-4 text-gray-900 border-gray-300 rounded focus:ring-gray-900"> <span class="ml-2">Remote</span></label>
+                </div>
+            </div>
+            <div>
+                <label for="location-filter" class="block text-sm font-medium text-gray-900 mb-2">Location</label>
+                <input type="text" id="location-filter" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm" placeholder="e.g., Mumbai, Remote">
+            </div>
+            <div>
+                <label for="skills-filter" class="block text-sm font-medium text-gray-900 mb-2">Skills</label>
+                <input type="text" id="skills-filter" class="block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 text-sm" placeholder="e.g., Python, React">
+                <small class="text-gray-500 text-xs">Comma-separated keywords</small>
+            </div>
+            <div class="space-y-2 pt-4">
+                <button id="apply-filters-btn" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-900 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900">Apply Filters</button>
+                <button id="reset-filters-btn" class="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlay -->
+    <div id="filter-overlay" class="fixed inset-0 z-30 bg-gray-900 bg-opacity-50 hidden transition-opacity"></div>
+
+    <div class="flex flex-col items-center">
+        <div id="job-card" class="w-full max-w-2xl min-h-[500px] relative bg-white border border-gray-200 rounded-lg overflow-hidden shadow-md">
+            <div class="absolute inset-0 flex items-center justify-center">
+                <div class="text-center">
+                    <div class="w-12 h-12 border-4 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <p class="mt-4 text-gray-600">Loading amazing opportunities...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex space-x-6 mt-8">
+            <button id="dislike-btn" class="w-20 h-20 rounded-full bg-red-50 text-red-600 flex items-center justify-center text-2xl font-bold shadow-md hover:bg-red-100 hover:shadow-lg transition-all transform hover:scale-105" title="Pass (←)">
+                ❌
+            </button>
+            <button id="like-btn" class="w-20 h-20 rounded-full bg-green-50 text-green-600 flex items-center justify-center text-2xl font-bold shadow-md hover:bg-green-100 hover:shadow-lg transition-all transform hover:scale-105" title="Like (→)">
+                ✅
+            </button>
+        </div>
+    </div>
+
+    <div class="mt-12 p-6 bg-gray-50 border border-gray-200 rounded-lg">
+        <h3 class="text-xl font-semibold mb-4 text-gray-900">💡 Pro Tips</h3>
+        <ul class="space-y-2 text-gray-700">
+            <li class="flex items-start"><span class="mr-2">✨</span><span>Like jobs that match your skills and interests</span></li>
+            <li class="flex items-start"><span class="mr-2">🎯</span><span>Check your <strong>Matches</strong> page to see all liked jobs</span></li>
+            <li class="flex items-start"><span class="mr-2">📝</span><span>Update your profile for better recommendations</span></li>
+            <li class="flex items-start"><span class="mr-2">⌨️</span><span>Use arrow keys (← →) for faster swiping</span></li>
+            <li class="flex items-start"><span class="mr-2">🔍</span><span>Use filters to narrow down job listings</span></li>
+        </ul>
+    </div>
+</div>
+
+<script>
+// Filter sidebar functionality
+document.addEventListener('DOMContentLoaded', () => {
+    const filterToggle = document.getElementById('filter-toggle-btn');
+    const filterClose = document.getElementById('filter-close-btn');
+    const filterSidebar = document.getElementById('filter-sidebar');
+    const filterOverlay = document.getElementById('filter-overlay');
+    const applyFilters = document.getElementById('apply-filters-btn');
+    const resetFilters = document.getElementById('reset-filters-btn');
+    
+    function openFilters() {
+        filterSidebar.classList.remove('translate-x-full');
+        filterOverlay.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+    
+    function closeFilters() {
+        filterSidebar.classList.add('translate-x-full');
+        filterOverlay.classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+    
+    filterToggle?.addEventListener('click', openFilters);
+    filterClose?.addEventListener('click', closeFilters);
+    filterOverlay?.addEventListener('click', closeFilters);
+    
+    applyFilters?.addEventListener('click', () => {
+        // Get filter values
+        const jobTypes = Array.from(document.querySelectorAll('input[name="job_type"]:checked'))
+            .map(cb => cb.value);
+        const location = document.getElementById('location-filter').value;
+        const skills = document.getElementById('skills-filter').value;
+        
+        console.log('Filters applied:', { jobTypes, location, skills });
+        // TODO: Apply filters to job loading
+        closeFilters();
+    });
+    
+    resetFilters?.addEventListener('click', () => {
+        document.querySelectorAll('input[name="job_type"]').forEach(cb => cb.checked = true);
+        document.getElementById('location-filter').value = '';
+        document.getElementById('skills-filter').value = '';
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Synapse - Tinder for Jobs{% endblock %}</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        :root {
+            --background: 0 0% 100%;
+            --foreground: 222.2 84% 4.9%;
+            --muted: 210 40% 96.1%;
+            --muted-foreground: 215.4 16.3% 46.9%;
+            --card: 0 0% 100%;
+            --card-foreground: 222.2 84% 4.9%;
+            --primary: 222.2 47.4% 11.2%;
+            --primary-foreground: 210 40% 98%;
+            --secondary: 210 40% 96.1%;
+            --secondary-foreground: 222.2 47.4% 11.2%;
+            --accent: 210 40% 96.1%;
+            --accent-foreground: 222.2 47.4% 11.2%;
+            --border: 214.3 31.8% 91.4%;
+            --input: 214.3 31.8% 91.4%;
+        }
+        .bg-background { background-color: hsl(var(--background)); }
+        .text-foreground { color: hsl(var(--foreground)); }
+        .bg-muted { background-color: hsl(var(--muted)); }
+        .text-muted-foreground { color: hsl(var(--muted-foreground)); }
+        .card { background-color: hsl(var(--card)); color: hsl(var(--card-foreground)); border: 1px solid hsl(var(--border)); border-radius: 0.5rem; }
+        .card-header, .card-content, .card-footer { padding: 1.5rem; }
+        .bg-primary { background-color: hsl(var(--primary)); }
+        .text-primary-foreground { color: hsl(var(--primary-foreground)); }
+        .bg-secondary { background-color: hsl(var(--secondary)); }
+        .text-secondary-foreground { color: hsl(var(--secondary-foreground)); }
+        .hover\:bg-primary\/90:hover { background-color: hsl(var(--primary) / 0.9); }
+        .hover\:bg-accent:hover { background-color: hsl(var(--accent)); }
+        .hover\:text-accent-foreground:hover { color: hsl(var(--accent-foreground)); }
+        .border-input { border-color: hsl(var(--input)); }
+        .font-sans { font-family: 'Inter', sans-serif; }
+        
+        /* Fix for headings - make them dark and visible */
+        h1, h2, h3, h4, h5, h6 { color: #1a1a1a !important; }
+        .text-gray-900 { color: #1a1a1a !important; }
+    </style>
+</head>
+<body class="bg-background text-foreground font-sans">
+    <!-- Navigation Bar -->
+    <nav class="bg-background border-b">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <a href="{{ url_for('index') }}" class="text-2xl font-bold">Synapse</a>
+                
+                <div class="hidden md:flex items-center space-x-4">
+                    {% if current_user.is_authenticated %}
+                        {% if current_user.user_type == 'jobseeker' %}
+                            <a href="{{ url_for('discover') }}" class="text-muted-foreground hover:text-foreground">Discover</a>
+                            <a href="{{ url_for('matches') }}" class="text-muted-foreground hover:text-foreground">Matches</a>
+                            <a href="{{ url_for('career_roadmap') }}" class="text-muted-foreground hover:text-foreground">Roadmap</a>
+                            <a href="{{ url_for('profile') }}" class="text-muted-foreground hover:text-foreground">Profile</a>
+                        {% elif current_user.user_type == 'company' %}
+                            <a href="{{ url_for('company_dashboard') }}" class="text-muted-foreground hover:text-foreground">Dashboard</a>
+                            <a href="{{ url_for('post_job') }}" class="text-muted-foreground hover:text-foreground">Post Job</a>
+                            <a href="{{ url_for('my_jobs') }}" class="text-muted-foreground hover:text-foreground">My Jobs</a>
+                            <a href="{{ url_for('applicants') }}" class="text-muted-foreground hover:text-foreground">Applicants</a>
+                        {% endif %}
+                        <a href="{{ url_for('logout') }}" class="bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-2 rounded-md text-sm font-medium">Logout</a>
+                    {% else %}
+                        <a href="{{ url_for('login') }}" class="text-muted-foreground hover:text-foreground">Login</a>
+                        <a href="{{ url_for('register_jobseeker') }}" class="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md text-sm font-medium">For Job Seekers</a>
+                        <a href="{{ url_for('register_company') }}" class="bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-2 rounded-md text-sm font-medium">For Companies</a>
+                    {% endif %}
+                </div>
+                <!-- Mobile Menu Button -->
+                <div class="md:hidden">
+                    <button id="mobile-menu-button" class="text-foreground">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Mobile Menu -->
+        <div id="mobile-menu" class="hidden md:hidden">
+            <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                {% if current_user.is_authenticated %}
+                    {% if current_user.user_type == 'jobseeker' %}
+                        <a href="{{ url_for('discover') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Discover</a>
+                        <a href="{{ url_for('matches') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Matches</a>
+                        <a href="{{ url_for('career_roadmap') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Roadmap</a>
+                        <a href="{{ url_for('profile') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Profile</a>
+                    {% elif current_user.user_type == 'company' %}
+                        <a href="{{ url_for('company_dashboard') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Dashboard</a>
+                        <a href="{{ url_for('post_job') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Post Job</a>
+                        <a href="{{ url_for('my_jobs') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">My Jobs</a>
+                        <a href="{{ url_for('applicants') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Applicants</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">Login</a>
+                    <a href="{{ url_for('register_jobseeker') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">For Job Seekers</a>
+                    <a href="{{ url_for('register_company') }}" class="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-muted">For Companies</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="space-y-2">
+                    {% for category, message in messages %}
+                        <div class="p-4 rounded-md {% if category == 'success' %} bg-green-100 border-green-200 text-green-800 {% elif category == 'danger' %} bg-red-100 border-red-200 text-red-800 {% else %} bg-blue-100 border-blue-200 text-blue-800 {% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-muted text-muted-foreground">
+        <div class="container mx-auto px-4 py-6 text-center">
+            <p>&copy; 2025 Synapse - Connecting Talent with Opportunity</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // Mobile menu toggle
+        const mobileMenuButton = document.getElementById('mobile-menu-button');
+        const mobileMenu = document.getElementById('mobile-menu');
+        mobileMenuButton.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    {% if current_user.is_authenticated and current_user.user_type == 'company' %}
+        <script src="{{ url_for('static', filename='company.js') }}"></script>
+    {% endif %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

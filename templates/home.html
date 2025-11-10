@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Synapse - Tinder for Jobs{% endblock %}
+
+{% block content %}
+<div class="bg-background text-foreground">
+    <!-- Hero Section -->
+    <section class="py-20 md:py-32">
+        <div class="container mx-auto px-4 text-center">
+            <h1 class="text-4xl md:text-6xl font-bold tracking-tight">Find Your Perfect Match</h1>
+            <p class="mt-4 max-w-2xl mx-auto text-lg md:text-xl text-muted-foreground">Swipe through jobs like never before. Connect with opportunities that truly resonate with you.</p>
+            <div class="mt-8 flex justify-center gap-4">
+                <a href="{{ url_for('register_jobseeker') }}" class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-primary-foreground bg-primary hover:bg-primary/90">
+                    🎯 Find Jobs
+                </a>
+                <a href="{{ url_for('register_company') }}" class="inline-flex items-center justify-center px-6 py-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground text-base font-medium rounded-md">
+                    🏢 Post Jobs
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="py-20 bg-muted">
+        <div class="container mx-auto px-4">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold">Why Choose Synapse?</h2>
+                <p class="mt-2 max-w-2xl mx-auto text-lg text-muted-foreground">Experience job hunting like never before with our innovative platform.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <div class="card text-center">
+                    <div class="card-header">
+                        <div class="text-4xl mb-4">⚡</div>
+                        <h3 class="text-xl font-semibold">Lightning Fast</h3>
+                    </div>
+                    <div class="card-content">
+                        <p class="text-muted-foreground">Swipe through hundreds of jobs in minutes. No more tedious applications or endless scrolling.</p>
+                    </div>
+                </div>
+                <div class="card text-center">
+                    <div class="card-header">
+                        <div class="text-4xl mb-4">🎯</div>
+                        <h3 class="text-xl font-semibold">Perfect Matches</h3>
+                    </div>
+                    <div class="card-content">
+                        <p class="text-muted-foreground">Our AI-powered matching system ensures you only see jobs that align with your skills and preferences.</p>
+                    </div>
+                </div>
+                <div class="card text-center">
+                    <div class="card-header">
+                        <div class="text-4xl mb-4">💼</div>
+                        <h3 class="text-xl font-semibold">Direct Connections</h3>
+                    </div>
+                    <div class="card-content">
+                        <p class="text-muted-foreground">Connect directly with companies when there's a mutual interest. No middlemen, just opportunities.</p>
+                    </div>
+                </div>
+                <div class="card text-center">
+                    <div class="card-header">
+                        <div class="text-4xl mb-4">📊</div>
+                        <h3 class="text-xl font-semibold">Resume Analysis</h3>
+                    </div>
+                    <div class="card-content">
+                        <p class="text-muted-foreground">Get instant AI-powered feedback on your resume to improve your chances of landing your dream job.</p>
+                    </div>
+                </div>
+                <div class="card text-center">
+                    <div class="card-header">
+                        <div class="text-4xl mb-4">🚀</div>
+                        <h3 class="text-xl font-semibold">Career Growth</h3>
+                    </div>
+                    <div class="card-content">
+                        <p class="text-muted-foreground">Track your applications, view acceptance rates, and gain insights into your job search progress.</p>
+                    </div>
+                </div>
+                <div class="card text-center">
+                    <div class="card-header">
+                        <div class="text-4xl mb-4">🔒</div>
+                        <h3 class="text-xl font-semibold">Secure & Private</h3>
+                    </div>
+                    <div class="card-content">
+                        <p class="text-muted-foreground">Your data is encrypted and protected. We never share your information without your explicit consent.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="py-20">
+        <div class="container mx-auto px-4">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold">How It Works</h2>
+                <p class="mt-2 max-w-2xl mx-auto text-lg text-muted-foreground">Start your journey in three simple steps.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+                <div class="flex flex-col items-center">
+                    <div class="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground text-2xl font-bold mb-4">1</div>
+                    <h3 class="text-xl font-semibold mb-2">Create Your Profile</h3>
+                    <p class="text-muted-foreground">Sign up as a job seeker or company. Upload your resume or post your first job listing.</p>
+                </div>
+                <div class="flex flex-col items-center">
+                    <div class="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground text-2xl font-bold mb-4">2</div>
+                    <h3 class="text-xl font-semibold mb-2">Swipe & Match</h3>
+                    <p class="text-muted-foreground">Browse through curated opportunities. Swipe right on what interests you, left on what doesn't.</p>
+                </div>
+                <div class="flex flex-col items-center">
+                    <div class="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground text-2xl font-bold mb-4">3</div>
+                    <h3 class="text-xl font-semibold mb-2">Connect & Grow</h3>
+                    <p class="text-muted-foreground">When there's a match, connect directly and start the conversation. It's that simple!</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-20 bg-muted">
+        <div class="container mx-auto px-4 text-center">
+            <h2 class="text-3xl md:text-4xl font-bold">Ready to Transform Your Career?</h2>
+            <p class="mt-2 max-w-2xl mx-auto text-lg text-muted-foreground">Join thousands of job seekers and companies already using Synapse.</p>
+            <div class="mt-8 flex justify-center gap-4">
+                <a href="{{ url_for('register_jobseeker') }}" class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-primary-foreground bg-primary hover:bg-primary/90">Get Started Free</a>
+                <a href="{{ url_for('login') }}" class="inline-flex items-center justify-center px-6 py-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground text-base font-medium rounded-md">Sign In</a>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

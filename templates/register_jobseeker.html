@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Job Seeker Registration - Synapse{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-center min-h-[calc(100vh-14rem)] py-12">
+    <div class="w-full max-w-md">
+        <div class="card">
+            <div class="card-header text-center">
+                <h2 class="text-2xl font-bold">Join as a Job Seeker</h2>
+                <p class="text-muted-foreground">Start discovering your perfect job match</p>
+            </div>
+            <div class="card-content">
+                <form method="POST" action="{{ url_for('register_jobseeker') }}" class="space-y-4">
+                    <div>
+                        <label for="full_name" class="block text-sm font-medium text-gray-700">Full Name</label>
+                        <input type="text" id="full_name" name="full_name" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" placeholder="John Doe">
+                    </div>
+                    
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                        <input type="email" id="email" name="email" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" placeholder="your@email.com">
+                    </div>
+                    
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                        <input type="password" id="password" name="password" required minlength="6" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm" placeholder="At least 6 characters">
+                    </div>
+                    
+                    <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                        Create Account
+                    </button>
+                </form>
+            </div>
+            <div class="card-footer text-center text-sm text-muted-foreground">
+                <p>Already have an account? <a href="{{ url_for('login') }}" class="font-medium text-primary hover:text-primary/90">Login here</a></p>
+                <p class="mt-2">Are you a company? <a href="{{ url_for('register_company') }}" class="font-medium text-primary hover:text-primary/90">Register as Company</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Hidden Jobs - Synapse{% endblock %}
+
+{% block content %}
+<div class="hidden-container">
+    <h2 class="page-title">Hidden Jobs</h2>
+    <p class="page-subtitle">Jobs you've archived from your matches</p>
+    
+    {% if hidden_jobs %}
+        <div class="jobs-grid">
+            {% for item in hidden_jobs %}
+                {% set job = item.job %}
+                {% set match = item.match %}
+                {% set status = item.status %}
+                
+                <div class="match-card" data-match-id="{{ match.id }}">
+                    <div class="match-header">
+                        <h3>{{ job.title }}</h3>
+                        <div class="badges">
+                            <span class="job-type-badge">{{ job.job_type }}</span>
+                            {% if status == 'accepted' %}
+                                <span class="status-badge status-accepted">✓ Accepted</span>
+                            {% elif status == 'rejected' %}
+                                <span class="status-badge status-rejected">✗ Rejected</span>
+                            {% else %}
+                                <span class="status-badge status-pending">⏳ Pending</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="match-company">
+                        <strong>{{ job.company.company_name }}</strong>
+                    </div>
+                    
+                    <div class="match-location">
+                        📍 {{ job.location }}
+                    </div>
+                    
+                    {% if job.salary_range %}
+                        <div class="match-salary">
+                            💰 {{ job.salary_range }}
+                        </div>
+                    {% endif %}
+                    
+                    <div class="match-description">
+                        <p>{{ job.description_text[:200] }}{% if job.description_text|length > 200 %}...{% endif %}</p>
+                    </div>
+                    
+                    <div class="match-actions">
+                        <button class="btn btn-primary btn-unhide" data-match-id="{{ match.id }}">
+                            Restore to Matches
+                        </button>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <h3>No hidden jobs!</h3>
+            <p>Jobs you hide from your matches will appear here.</p>
+            <a href="{{ url_for('matches') }}" class="btn btn-primary">View Matches</a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+// Handle unhide button clicks
+document.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('btn-unhide')) {
+        const matchId = e.target.getAttribute('data-match-id');
+        
+        try {
+            const response = await fetch(`/api/unhide-match/${matchId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                alert('Job restored to your matches!');
+                // Remove the card from view
+                const card = e.target.closest('.match-card');
+                card.style.opacity = '0';
+                setTimeout(() => card.remove(), 300);
+            } else {
+                alert(data.error || 'Failed to restore job');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('An error occurred');
+        }
+    }
+});
+</script>
+{% endblock %}

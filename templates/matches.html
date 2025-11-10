@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}My Matches - Synapse{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-8">
+        <h2 class="text-3xl font-bold text-gray-900">My Matches</h2>
+        <p class="text-gray-600 mt-1">
+            {% if current_filter == 'skipped' %}
+                Jobs you have skipped
+            {% elif current_filter == 'hidden' %}
+                Jobs you have hidden
+            {% else %}
+                Jobs you have liked
+            {% endif %}
+        </p>
+    </div>
+    
+    <div class="border-b border-gray-200 mb-6">
+        <nav class="-mb-px flex space-x-8">
+            <a href="{{ url_for('matches', filter='all') }}" class="{% if current_filter == 'all' %}border-gray-900 text-gray-900{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Matches
+            </a>
+            <a href="{{ url_for('matches', filter='skipped') }}" class="{% if current_filter == 'skipped' %}border-gray-900 text-gray-900{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Skipped
+            </a>
+            <a href="{{ url_for('matches', filter='hidden') }}" class="{% if current_filter == 'hidden' %}border-gray-900 text-gray-900{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Hidden
+            </a>
+        </nav>
+    </div>
+    
+    {% if matches_with_jobs %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% for item in matches_with_jobs %}
+                <div class="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow">
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex-1">
+                            <h3 class="text-xl font-semibold text-gray-900 mb-1">{{ item.job.title }}</h3>
+                            <p class="text-gray-600">{{ item.job.company_name }}</p>
+                        </div>
+                        {% if item.status %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                {% if item.status == 'applied' %}
+                                    bg-blue-100 text-blue-800
+                                {% elif item.status == 'accepted' %}
+                                    bg-green-100 text-green-800
+                                {% elif item.status == 'rejected' %}
+                                    bg-red-100 text-red-800
+                                {% else %}
+                                    bg-gray-100 text-gray-800
+                                {% endif %}
+                            ">
+                                {{ item.status.title() }}
+                            </span>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="space-y-2 mb-4">
+                        <div class="flex items-center text-sm text-gray-600">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                            {{ item.job.location }}
+                        </div>
+                        {% if item.job.salary_range %}
+                            <div class="flex items-center text-sm text-gray-600">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                {{ item.job.salary_range }}
+                            </div>
+                        {% endif %}
+                        {% if item.job.job_type %}
+                            <div class="flex items-center text-sm text-gray-600">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                </svg>
+                                {{ item.job.job_type }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    {% if item.job.requirements %}
+                        <p class="text-sm text-gray-600 mb-4 line-clamp-2">{{ item.job.requirements[:150] }}...</p>
+                    {% endif %}
+                    
+                    <div class="flex items-center gap-2 mt-4 pt-4 border-t border-gray-100">
+                        {% if current_filter == 'skipped' %}
+                            <button onclick="reapplyJob({{ item.job.id }}, this)" class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm font-medium">
+                                Re-apply
+                            </button>
+                            <button onclick="hideMatch({{ item.match.id }}, this)" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium">
+                                Hide
+                            </button>
+                        {% elif current_filter == 'hidden' %}
+                            <button onclick="unhideMatch({{ item.match.id }}, this)" class="flex-1 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium">
+                                Unhide
+                            </button>
+                        {% else %}
+                            <button onclick="hideMatch({{ item.match.id }}, this)" class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium">
+                                Hide
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="text-center py-12">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
+                <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">
+                {% if current_filter == 'skipped' %}
+                    No skipped jobs yet!
+                {% elif current_filter == 'hidden' %}
+                    No hidden jobs yet!
+                {% else %}
+                    No matches yet!
+                {% endif %}
+            </h3>
+            <p class="text-gray-600 mb-6">
+                {% if current_filter == 'skipped' %}
+                    Jobs you skip will appear here.
+                {% elif current_filter == 'hidden' %}
+                    Jobs you hide will appear here.
+                {% else %}
+                    Start swiping on jobs in the Discover page to build your matches.
+                {% endif %}
+            </p>
+            {% if current_filter != 'skipped' and current_filter != 'hidden' %}
+                <a href="{{ url_for('discover') }}" class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-gray-900 hover:bg-gray-800">
+                    Discover Jobs
+                </a>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function hideMatch(matchId, button) {
+    if (!confirm('Hide this job? You can unhide it later from the Hidden tab.')) return;
+    
+    button.disabled = true;
+    button.textContent = 'Hiding...';
+    
+    fetch(`/api/hide-match/${matchId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.status === 'success') {
+            // Show success message and reload page
+            alert('Job hidden successfully!');
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to hide job'));
+            button.disabled = false;
+            button.textContent = 'Hide';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to hide job. Please try again.');
+        button.disabled = false;
+        button.textContent = 'Hide';
+    });
+}
+
+function unhideMatch(matchId, button) {
+    button.disabled = true;
+    button.textContent = 'Unhiding...';
+    
+    fetch(`/api/unhide-match/${matchId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.status === 'success') {
+            // Show success message and reload page
+            alert('Job restored successfully!');
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to unhide job'));
+            button.disabled = false;
+            button.textContent = 'Unhide';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to unhide job. Please try again.');
+        button.disabled = false;
+        button.textContent = 'Unhide';
+    });
+}
+
+function reapplyJob(jobId, button) {
+    button.disabled = true;
+    button.textContent = 'Re-applying...';
+    
+    fetch(`/api/reapply/${jobId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.status === 'success') {
+            // Show success message and reload page
+            alert('Application re-submitted successfully!');
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to re-apply'));
+            button.disabled = false;
+            button.textContent = 'Re-apply';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to re-apply. Please try again.');
+        button.disabled = false;
+        button.textContent = 'Re-apply';
+    });
+}
+</script>
+{% endblock %}
