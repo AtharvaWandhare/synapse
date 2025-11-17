@@ -72,9 +72,9 @@ def get_resume_feedback(extracted_data: dict, target_job_profile: str) -> dict |
         return None
 
 
-def get_career_roadmap(extracted_data: dict, target_job_profile: str) -> list | None:
+def get_career_roadmap(extracted_data: dict, target_job_profile: str) -> dict | None:
     """
-    Uses Gemini Pro to generate a JSON-based career roadmap.
+    Uses Gemini Pro to generate a flowchart-style career roadmap.
     """
     try:
         load_dotenv()
@@ -90,38 +90,95 @@ def get_career_roadmap(extracted_data: dict, target_job_profile: str) -> list | 
     current_skills = extracted_data.get('skills', [])
 
     prompt = f"""
-    You are an expert career coach. Generate a career roadmap as a JSON array.
+    You are an expert career coach. Generate a visual flowchart-style career roadmap as a JSON object.
 
     Target job: '{target_job_profile}'
     Current skills: {current_skills}
 
-    Return ONLY a valid JSON array like this example:
-    [
-      {{
-        "phase": 1,
-        "title": "Foundation Phase",
-        "summary": "Build core programming skills.",
-        "steps": [
-          {{"name": "Python", "status": "completed"}},
-          {{"name": "Git", "status": "to_learn"}}
-        ]
-      }},
-      {{
-        "phase": 2,
-        "title": "Advanced Phase",
-        "summary": "Learn advanced topics.",
-        "steps": [
-          {{"name": "Docker", "status": "to_learn"}},
-          {{"name": "AWS", "status": "in_progress"}}
-        ]
-      }}
-    ]
+    Create a roadmap with parallel learning tracks (like Frontend, Backend, DevOps) connected by checkpoints.
+
+    Return ONLY a valid JSON object like this example:
+    {{
+      "title": "{target_job_profile}",
+      "description": "Target audience description and prerequisites",
+      "tracks": [
+        {{
+          "id": "frontend",
+          "name": "Frontend",
+          "color": "#fbbf24",
+          "nodes": [
+            {{
+              "id": "html",
+              "label": "HTML",
+              "type": "skill",
+              "status": "completed",
+              "description": "Learn HTML basics and semantic markup"
+            }},
+            {{
+              "id": "css",
+              "label": "CSS",
+              "type": "skill",
+              "status": "to_learn",
+              "description": "Master styling and responsive design"
+            }}
+          ]
+        }},
+        {{
+          "id": "backend",
+          "name": "Backend",
+          "color": "#3b82f6",
+          "nodes": [
+            {{
+              "id": "nodejs",
+              "label": "Node.js",
+              "type": "skill",
+              "status": "to_learn",
+              "description": "Backend JavaScript runtime"
+            }}
+          ]
+        }}
+      ],
+      "checkpoints": [
+        {{
+          "id": "checkpoint-1",
+          "label": "Checkpoint - Static Webpages",
+          "type": "checkpoint",
+          "description": "Build static HTML/CSS pages",
+          "connectedNodes": ["html", "css"]
+        }},
+        {{
+          "id": "checkpoint-2",
+          "label": "Checkpoint - Interactive Apps",
+          "type": "checkpoint",
+          "description": "Create interactive web applications",
+          "connectedNodes": ["css", "nodejs"]
+        }}
+      ],
+      "connections": [
+        {{"from": "html", "to": "css"}},
+        {{"from": "css", "to": "checkpoint-1"}},
+        {{"from": "checkpoint-1", "to": "nodejs"}},
+        {{"from": "nodejs", "to": "checkpoint-2"}}
+      ],
+      "projects": [
+        {{
+          "id": "project-1",
+          "label": "Portfolio Website",
+          "type": "project",
+          "description": "Build a personal portfolio",
+          "linkedNodes": ["html", "css"]
+        }}
+      ]
+    }}
 
     Rules:
-    - status MUST be "completed" if the skill is in current skills
-    - Otherwise use "in_progress" or "to_learn"
-    - Create 3-5 phases
-    - Return ONLY the JSON array, no markdown, no code blocks
+    - Create 2-4 parallel tracks (Frontend/Backend/DevOps/etc based on target job)
+    - Each track should have 3-6 skill nodes
+    - Add 3-5 checkpoints that connect skills across tracks
+    - status MUST be "completed" if skill is in current skills, otherwise "to_learn" or "in_progress"
+    - Include 2-4 project ideas that tie skills together
+    - Use colors: yellow (#fbbf24) for highlighted skills, gray (#6b7280) for checkpoints, blue (#3b82f6) for backend, green (#10b981) for misc
+    - Return ONLY the JSON object, no markdown, no code blocks
 
     Compare current skills with target job requirements carefully.
     """

@@ -44,6 +44,13 @@ try:
         cursor.execute("UPDATE matches SET updated_at = created_at WHERE updated_at IS NULL")
         conn.commit()
         print("✓ updated_at column added!")
+
+    # Add match_score if missing
+    if 'match_score' not in columns:
+        print("Adding match_score column to matches table...")
+        cursor.execute("ALTER TABLE matches ADD COLUMN match_score INTEGER")
+        conn.commit()
+        print("✓ match_score column added!")
     
     # Verify
     cursor.execute("PRAGMA table_info(matches)")

@@ -204,6 +204,19 @@ app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
 
 Allowed file types: PDF, DOC, DOCX, TXT
 
+## 🔐 API Authentication (JWT)
+
+The API now uses JSON Web Tokens (JWT) for programmatic clients (recommended for React or mobile apps).
+
+- Obtain a token: `POST /api/jwt-login` with JSON `{ "email": "...", "password": "..." }`.
+- Include token: set header `Authorization: Bearer <TOKEN>` on all protected requests (profile, upload, matches, roadmap).
+- Token expiry: controlled by the `JWT_EXP` environment variable (seconds). Default is 24 hours.
+- Required env vars:
+   - `JWT_SECRET` (recommended) — secret used to sign tokens. If not set, the app falls back to `SECRET_KEY`.
+   - `JWT_EXP` (optional) — token lifetime in seconds (default 86400).
+
+Deprecation: cookie-based API endpoints `/api/login` and `/api/logout` are deprecated for API clients — use `/api/jwt-login` instead. HTML pages still use session cookies for browser-based flows.
+
 ## 🐛 Troubleshooting
 
 ### Issue: Resume analysis not working

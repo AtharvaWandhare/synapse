@@ -79,7 +79,10 @@ class ResumeAnalysis(db.Model):
     
     # Analysis results
     analysis_score = db.Column(db.Integer)  # Score out of 100
+    ats_score = db.Column(db.Integer)  # ATS Score out of 100
+    target_job_role = db.Column(db.String(200))  # Extracted target job role
     improvement_suggestions = db.Column(db.Text)  # Line-separated suggestions
+    enhancement_recommendations = db.Column(db.Text)  # JSON string with detailed enhancement tips
     
     # Profile summary for matching (can be auto-generated or manually edited)
     profile_summary_text = db.Column(db.Text)
@@ -137,6 +140,9 @@ class Match(db.Model):
     
     # NEW: Job seeker can hide matched jobs they no longer want to see
     is_hidden_by_user = db.Column(db.Boolean, default=False)
+
+    # Persisted AI match score for stability across UI views
+    match_score = db.Column(db.Integer)
     
     # Timestamp
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -146,7 +152,7 @@ class Match(db.Model):
     __table_args__ = (db.UniqueConstraint('user_id', 'job_id', name='unique_user_job_match'),)
     
     def __repr__(self):
-        return f'<Match User:{self.user_id} Job:{self.job_id} Like:{self.is_match} Status:{self.application_status}>'
+        return f'<Match User:{self.user_id} Job:{self.job_id} Like:{self.is_match} Status:{self.application_status} Score:{self.match_score}>'
 
 
 class CareerRoadmap(db.Model):
@@ -171,3 +177,24 @@ class CareerRoadmap(db.Model):
     
     def __repr__(self):
         return f'<CareerRoadmap User:{self.user_id} Target:{self.target_job}>'
+
+
+class LatexResume(db.Model):
+    """LaTeX Resume Model"""
+    __tablename__ = 'latex_resumes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    latex_code = db.Column(db.Text, nullable=False)
+    compiled_pdf_url = db.Column(db.String(500))
+    template_name = db.Column(db.String(50), default='default')
+    is_active = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship to user
+    user = db.relationship('User', backref=db.backref('latex_resumes', lazy=True, cascade='all, delete-orphan'))
+    
+    def __repr__(self):
+        return f'<LatexResume {self.title} User:{self.user_id}>'

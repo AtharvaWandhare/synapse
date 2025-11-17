@@ -7,14 +7,25 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
+from flask_cors import CORS
+import jwt
+import re
+from functools import wraps as _wraps
+from flask import g
+from datetime import timedelta
 
 # Import database models
-from models import db, User, Company, ResumeAnalysis, Job, Match, CareerRoadmap
+from models import db, User, Company, ResumeAnalysis, Job, Match, CareerRoadmap, LatexResume
 
 # Import resume analyzer core logic
 from core_logic.extractor import extract_text_from_pdf
 from core_logic.analyzer import extract_resume_data
 from core_logic.improver import get_resume_feedback, get_career_roadmap
+from core_logic.ats_scorer import calculate_ats_score, get_profile_enhancement
+from core_logic.matcher import calculate_match_score
+
+# Import LaTeX template
+from latex_template import DEFAULT_TEMPLATE
 
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
@@ -33,6 +44,54 @@ bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message_category = 'info'
+
+# Enable CORS for quick frontend integration (allow credentials)
+CORS(app, supports_credentials=True)
+
+# JWT configuration (quick & dirty)
+JWT_SECRET = os.environ.get('JWT_SECRET', app.config.get('SECRET_KEY') or 'dev-jwt-secret')
+JWT_ALGORITHM = 'HS256'
+JWT_EXP_DELTA_SECONDS = int(os.environ.get('JWT_EXP', 60*60*24))  # default 24 hours
+
+def create_jwt_token(user_id, user_type):
+    payload = {
+        'user_id': user_id,
+        'user_type': user_type,
+        'exp': datetime.utcnow() + timedelta(seconds=JWT_EXP_DELTA_SECONDS)
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return token
+
+def decode_jwt_token(token):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except Exception as e:
+        return None
+
+def jwt_required(fn):
+    @_wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            token = auth.split(' ', 1)[1]
+            payload = decode_jwt_token(token)
+            if payload:
+                user_id = payload.get('user_id')
+                user_type = payload.get('user_type')
+                user = None
+                try:
+                    if user_type == 'company':
+                        user = Company.query.get(user_id)
+                    else:
+                        user = User.query.get(user_id)
+                except:
+                    user = None
+                if user:
+                    g.jwt_user = user
+                    return fn(*args, **kwargs)
+        return jsonify({'error': 'Unauthorized'}), 401
+    return wrapper
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'txt'}
@@ -220,6 +279,579 @@ def logout():
     logout_user()
     flash('You have been logged out successfully.', 'info')
     return redirect(url_for('login'))
+
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """Deprecated cookie-based login endpoint.
+
+    This endpoint is deprecated for API clients. Use `/api/jwt-login` to obtain
+    a Bearer token and authenticate API requests via the `Authorization` header.
+    Kept for backwards compatibility but will return HTTP 410.
+    """
+    return jsonify({
+        'error': 'deprecated',
+        'message': 'Use /api/jwt-login to obtain a JWT token. This endpoint is deprecated.'
+    }), 410
+
+
+@app.route('/api/jwt-login', methods=['POST'])
+def api_jwt_login():
+    """Issue a JWT token for valid credentials."""
+    data = request.get_json() or {}
+    email = data.get('email')
+    password = data.get('password')
+    if not email or not password:
+        return jsonify({'error': 'Missing credentials'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if user and bcrypt.check_password_hash(user.password_hash, password):
+        token = create_jwt_token(user.id, user.user_type)
+        return jsonify({'status': 'success', 'token': token, 'user_id': user.id, 'user_type': user.user_type}), 200
+
+    company = Company.query.filter_by(email=email).first()
+    if company and bcrypt.check_password_hash(company.password_hash, password):
+        token = create_jwt_token(company.id, company.user_type)
+        return jsonify({'status': 'success', 'token': token, 'user_id': company.id, 'user_type': company.user_type}), 200
+
+    return jsonify({'error': 'Invalid email or password'}), 401
+
+
+@app.route('/api/logout', methods=['POST'])
+def api_logout():
+    """Deprecated cookie-based logout endpoint.
+
+    For API clients using JWTs, simply discard the token client-side. This
+    endpoint will return HTTP 410 to indicate deprecation.
+    """
+    # Best-effort clear server session for any callers still using cookies
+    try:
+        session.pop('user_type', None)
+        logout_user()
+    except Exception:
+        pass
+    return jsonify({
+        'error': 'deprecated',
+        'message': 'Use token discard on client. This endpoint is deprecated.'
+    }), 410
+
+
+@app.route('/api/profile', methods=['GET'])
+@jwt_required
+def api_get_profile():
+    """Return current user's profile as JSON (JWT-only)."""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    # Get resume analysis if exists
+    resume_analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+    resume_data = None
+    if resume_analysis:
+        resume_data = {
+            'filename': resume_analysis.filename,
+            'ats_score': resume_analysis.ats_score,
+            'target_job_role': resume_analysis.target_job_role,
+            'has_enhancement': bool(resume_analysis.enhancement_recommendations),
+            'updated_at': resume_analysis.updated_at.isoformat() if resume_analysis.updated_at else None
+        }
+    
+    profile = {
+        'id': user.id,
+        'email': user.email,
+        'full_name': user.full_name,
+        'career_objective': user.career_objective,
+        'projects': json.loads(user.projects) if user.projects else [],
+        'training_courses': json.loads(user.training_courses) if user.training_courses else [],
+        'portfolio_url': user.portfolio_url,
+        'work_samples': json.loads(user.work_samples) if user.work_samples else [],
+        'accomplishments': user.accomplishments,
+        'phone': user.phone,
+        'location': user.location,
+        'linkedin_url': user.linkedin_url,
+        'github_url': user.github_url,
+        'resume': resume_data
+    }
+    return jsonify({'status': 'success', 'profile': profile}), 200
+
+
+@app.route('/api/profile', methods=['POST'])
+@jwt_required
+def api_update_profile():
+    """Quick JSON profile update (partial fields) - JWT-only."""
+    data = request.get_json() or {}
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Update a few allowed fields quickly
+    for field in ['full_name', 'career_objective', 'portfolio_url', 'accomplishments', 'phone', 'location', 'linkedin_url', 'github_url']:
+        if field in data:
+            setattr(user, field, data.get(field))
+
+    # For simple lists accept arrays
+    if 'projects' in data:
+        user.projects = json.dumps(data.get('projects') or [])
+    if 'training_courses' in data:
+        user.training_courses = json.dumps(data.get('training_courses') or [])
+    if 'work_samples' in data:
+        user.work_samples = json.dumps(data.get('work_samples') or [])
+
+    db.session.commit()
+    return jsonify({'status': 'success'}), 200
+
+
+@app.route('/api/upload-resume', methods=['POST'])
+@jwt_required
+def api_upload_resume():
+    """Accept multipart/form-data resume upload and return JSON with analysis result (JWT-only)."""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if 'resume_file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['resume_file']
+    if file.filename == '' or not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file'}), 400
+
+    filename = secure_filename(file.filename)
+    full_filename = f"{user.id}_{filename}"
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], full_filename)
+    file.save(filepath)
+
+    try:
+        raw_text = extract_text_from_pdf(filepath)
+        if not raw_text:
+            return jsonify({'error': 'Could not extract text from file'}), 500
+        analysis_result = extract_resume_data(raw_text)
+        if not analysis_result:
+            return jsonify({'error': 'Could not analyze resume'}), 500
+
+        # Calculate ATS score
+        ats_result = calculate_ats_score(analysis_result)
+        ats_score = ats_result.get('ats_score', 0) if ats_result else 0
+        target_job_role = ats_result.get('target_job_role', 'Not specified') if ats_result else 'Not specified'
+
+        resume_analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+        if not resume_analysis:
+            resume_analysis = ResumeAnalysis(user_id=user.id)
+
+        resume_analysis.raw_text = raw_text
+        resume_analysis.filename = full_filename
+        resume_analysis.extracted_json = json.dumps(analysis_result)
+        resume_analysis.ats_score = ats_score
+        resume_analysis.target_job_role = target_job_role
+        db.session.add(resume_analysis)
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'analysis': analysis_result,
+            'ats_score': ats_score,
+            'target_job_role': target_job_role,
+            'ats_breakdown': ats_result.get('breakdown') if ats_result else None,
+            'ats_recommendations': ats_result.get('recommendations') if ats_result else []
+        }), 200
+    except Exception as e:
+        print(f"Error analyzing resume (API): {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/jwt/profile', methods=['GET'])
+@jwt_required
+def api_jwt_get_profile():
+    """Return profile for JWT-authenticated user (strict JWT)."""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    profile = {
+        'id': user.id,
+        'email': user.email,
+        'full_name': user.full_name,
+        'career_objective': user.career_objective,
+        'projects': json.loads(user.projects) if user.projects else [],
+        'training_courses': json.loads(user.training_courses) if user.training_courses else [],
+        'portfolio_url': user.portfolio_url,
+        'work_samples': json.loads(user.work_samples) if user.work_samples else [],
+        'accomplishments': user.accomplishments,
+        'phone': user.phone,
+        'location': user.location,
+        'linkedin_url': user.linkedin_url,
+        'github_url': user.github_url
+    }
+    return jsonify({'status': 'success', 'profile': profile}), 200
+
+
+@app.route('/api/jwt/upload-resume', methods=['POST'])
+@jwt_required
+def api_jwt_upload_resume():
+    """JWT-only resume upload endpoint accepting multipart/form-data"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if 'resume_file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['resume_file']
+    if file.filename == '' or not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file'}), 400
+
+    filename = secure_filename(file.filename)
+    full_filename = f"{user.id}_{filename}"
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], full_filename)
+    file.save(filepath)
+
+    try:
+        raw_text = extract_text_from_pdf(filepath)
+        if not raw_text:
+            return jsonify({'error': 'Could not extract text from file'}), 500
+        analysis_result = extract_resume_data(raw_text)
+        if not analysis_result:
+            return jsonify({'error': 'Could not analyze resume'}), 500
+
+        # Calculate ATS score
+        ats_result = calculate_ats_score(analysis_result)
+        ats_score = ats_result.get('ats_score', 0) if ats_result else 0
+        target_job_role = ats_result.get('target_job_role', 'Not specified') if ats_result else 'Not specified'
+
+        # Calculate profile summary
+        skills = analysis_result.get('skills', [])
+        work_exp = analysis_result.get('work_experience', [])
+        personal = analysis_result.get('personal_details', {})
+        
+        profile_summary = ""
+        if personal:
+            profile_summary += f"{personal.get('name', 'Professional')}\n"
+        if skills:
+            skill_list = skills if isinstance(skills, list) else [skills]
+            profile_summary += f"Skills: {', '.join(skill_list[:8])}\n"
+        if work_exp:
+            exp_count = len(work_exp) if isinstance(work_exp, list) else 1
+            profile_summary += f"Experience: {exp_count} position(s)\n"
+        
+        # Calculate comprehensive resume score (0-100)
+        score = 0
+        education = analysis_result.get('education', [])
+        certifications = analysis_result.get('certifications', [])
+        projects = analysis_result.get('projects', [])
+        
+        # Skills (max 30 points)
+        skill_count = len(skills) if isinstance(skills, list) else (1 if skills else 0)
+        score += min(30, skill_count * 3)
+        
+        # Work Experience (max 25 points)
+        exp_count = len(work_exp) if isinstance(work_exp, list) else (1 if work_exp else 0)
+        score += min(25, exp_count * 8)
+        
+        # Education (max 20 points)
+        edu_count = len(education) if isinstance(education, list) else (1 if education else 0)
+        score += min(20, edu_count * 10)
+        
+        # Certifications (max 15 points)
+        cert_count = len(certifications) if isinstance(certifications, list) else (1 if certifications else 0)
+        score += min(15, cert_count * 5)
+        
+        # Projects (max 10 points)
+        project_count = len(projects) if isinstance(projects, list) else (1 if projects else 0)
+        score += min(10, project_count * 5)
+        
+        analysis_score = min(100, score)
+
+        resume_analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+        if not resume_analysis:
+            resume_analysis = ResumeAnalysis(user_id=user.id)
+
+        resume_analysis.raw_text = raw_text
+        resume_analysis.filename = full_filename
+        resume_analysis.extracted_json = json.dumps(analysis_result)
+        resume_analysis.ats_score = ats_score
+        resume_analysis.target_job_role = target_job_role
+        resume_analysis.profile_summary_text = profile_summary.strip()
+        resume_analysis.analysis_score = analysis_score
+        db.session.add(resume_analysis)
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'analysis': analysis_result,
+            'ats_score': ats_score,
+            'analysis_score': analysis_score,
+            'target_job_role': target_job_role,
+            'profile_summary': profile_summary.strip(),
+            'ats_breakdown': ats_result.get('breakdown') if ats_result else None,
+            'ats_recommendations': ats_result.get('recommendations') if ats_result else []
+        }), 200
+    except Exception as e:
+        print(f"Error analyzing resume (JWT API): {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/jwt/generate-career-roadmap', methods=['POST'])
+@jwt_required
+def api_jwt_generate_career_roadmap():
+    """JWT-only roadmap generation endpoint. Saves roadmap to DB."""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json() or {}
+    target_job = data.get('target_job', 'Software Engineer')
+
+    analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+    if not analysis or not analysis.extracted_json:
+        return jsonify({'error': 'Please upload a resume first'}), 404
+
+    try:
+        extracted_data = json.loads(analysis.extracted_json)
+        roadmap = get_career_roadmap(extracted_data, target_job)
+        if not roadmap:
+            return jsonify({'error': 'Failed to generate roadmap'}), 500
+
+        # Don't update existing roadmap, create new one to keep history
+        new_rm = CareerRoadmap(user_id=user.id, target_job=target_job, roadmap_json=json.dumps(roadmap))
+        db.session.add(new_rm)
+        db.session.commit()
+
+        return jsonify({'status': 'success', 'roadmap': roadmap, 'roadmap_id': new_rm.id}), 200
+    except Exception as e:
+        print(f"Error generating roadmap (JWT API): {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/roadmaps', methods=['GET'])
+@jwt_required
+def api_get_roadmaps():
+    """Get all roadmaps for the current user"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    roadmaps = CareerRoadmap.query.filter_by(user_id=user.id).order_by(CareerRoadmap.created_at.desc()).all()
+    roadmaps_list = [{
+        'id': rm.id,
+        'target_job': rm.target_job,
+        'created_at': rm.created_at.isoformat(),
+        'roadmap': json.loads(rm.roadmap_json)
+    } for rm in roadmaps]
+    
+    return jsonify({'status': 'success', 'roadmaps': roadmaps_list}), 200
+
+
+@app.route('/api/roadmap/<int:roadmap_id>', methods=['DELETE'])
+@jwt_required
+def api_delete_roadmap(roadmap_id):
+    """Delete a specific roadmap"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    roadmap = CareerRoadmap.query.filter_by(id=roadmap_id, user_id=user.id).first()
+    if not roadmap:
+        return jsonify({'error': 'Roadmap not found'}), 404
+    
+    db.session.delete(roadmap)
+    db.session.commit()
+    return jsonify({'status': 'success'}), 200
+
+
+@app.route('/api/roadmap/<int:roadmap_id>', methods=['GET'])
+@jwt_required
+def api_get_roadmap(roadmap_id):
+    """Return a single roadmap by id for current user (JWT-only)"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    rm = CareerRoadmap.query.filter_by(id=roadmap_id, user_id=user.id).first()
+    if not rm:
+        return jsonify({'error': 'Roadmap not found'}), 404
+
+    roadmap = {
+        'id': rm.id,
+        'target_job': rm.target_job,
+        'created_at': rm.created_at.isoformat(),
+        'roadmap': json.loads(rm.roadmap_json)
+    }
+    return jsonify({'status': 'success', 'roadmap': roadmap}), 200
+
+
+@app.route('/api/profile-enhancement', methods=['POST'])
+@jwt_required
+def api_profile_enhancement():
+    """Generate profile enhancement recommendations"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+    if not analysis or not analysis.extracted_json:
+        return jsonify({'error': 'Please upload a resume first'}), 404
+    
+    try:
+        extracted_data = json.loads(analysis.extracted_json)
+        enhancement = get_profile_enhancement(extracted_data, analysis.raw_text or '')
+        
+        if not enhancement:
+            return jsonify({'error': 'Failed to generate enhancement recommendations'}), 500
+        
+        # Save to database
+        analysis.enhancement_recommendations = json.dumps(enhancement)
+        db.session.commit()
+        
+        return jsonify({'status': 'success', 'enhancement': enhancement}), 200
+    except Exception as e:
+        print(f"Error generating enhancement: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/resume-analysis', methods=['GET'])
+@jwt_required
+def api_get_resume_analysis():
+    """Get current resume analysis including ATS score"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+    if not analysis:
+        return jsonify({'status': 'success', 'analysis': None}), 200
+    
+    return jsonify({
+        'status': 'success',
+        'analysis': {
+            'filename': analysis.filename,
+            'ats_score': analysis.ats_score,
+            'target_job_role': analysis.target_job_role,
+            'extracted_data': json.loads(analysis.extracted_json) if analysis.extracted_json else None,
+            'enhancement_recommendations': json.loads(analysis.enhancement_recommendations) if analysis.enhancement_recommendations else None,
+            'created_at': analysis.created_at.isoformat(),
+            'updated_at': analysis.updated_at.isoformat()
+        }
+    }), 200
+
+
+def _get_request_user():
+    """Helper: prefer JWT user (g.jwt_user) else Flask-Login current_user if authenticated."""
+    try:
+        if hasattr(g, 'jwt_user') and g.jwt_user:
+            return g.jwt_user
+    except:
+        pass
+    try:
+        if current_user and current_user.is_authenticated:
+            return current_user
+    except:
+        pass
+    return None
+
+
+@app.route('/api/jobs', methods=['GET'])
+def api_get_jobs():
+    """Return list of active jobs as JSON. No auth required to view jobs."""
+    jobs = Job.query.filter_by(is_active=True).all()
+    jobs_list = []
+    for j in jobs:
+        jobs_list.append({
+            'id': j.id,
+            'title': j.title,
+            'location': j.location,
+            'salary_range': j.salary_range,
+            'job_type': j.job_type,
+            'company': j.company.company_name
+        })
+    return jsonify({'status': 'success', 'jobs': jobs_list}), 200
+
+
+@app.route('/api/matches', methods=['GET'])
+@jwt_required
+def api_get_matches():
+    """Return current user's matches (JWT-only)"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    matches = Match.query.filter_by(user_id=user.id).all()
+    out = []
+    # Get user's resume data for AI-enhanced matching
+    resume_analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+    resume_data = {}
+    if resume_analysis and resume_analysis.extracted_json:
+        try:
+            resume_data = json.loads(resume_analysis.extracted_json)
+        except Exception:
+            resume_data = {}
+
+    for m in matches:
+        job = m.job
+        # Calculate AI-enhanced match score using TF-IDF and cosine similarity
+        # Prefer stored match_score; if missing, compute and persist it for future use
+        match_score = m.match_score
+        if match_score is None and resume_data:
+            try:
+                match_score = calculate_match_score(
+                    resume_data=resume_data,
+                    job_description=job.description_text or '',
+                    job_requirements=job.requirements or ''
+                )
+                # Persist the computed score on the match
+                m.match_score = int(match_score) if match_score is not None else None
+                db.session.add(m)
+                db.session.commit()
+            except Exception as e:
+                print(f"Error calculating match score: {e}")
+                match_score = None
+
+        out.append({
+            'id': m.id,
+            'job_id': m.job_id,
+            'job_title': job.title,
+            'company_name': job.company.company_name if job.company else 'Unknown Company',
+            'location': job.location,
+            'salary_range': job.salary_range,
+            'job_type': job.job_type,
+            'description': job.description_text,
+            'requirements': job.requirements,
+            'apply_url': job.apply_url,
+            'match_score': match_score,
+            'is_match': m.is_match,
+            'application_status': m.application_status,
+            'is_hidden_by_user': m.is_hidden_by_user
+        })
+    return jsonify({'status': 'success', 'matches': out}), 200
+
+
+@app.route('/api/match', methods=['POST'])
+@jwt_required
+def api_post_match():
+    """Create or update a match for current user. JSON: { job_id: int, is_match: true/false } (JWT-only)"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json() or {}
+    job_id = data.get('job_id')
+    is_match_flag = data.get('is_match', True)
+    if not job_id:
+        return jsonify({'error': 'Missing job_id'}), 400
+
+    # Ensure job exists
+    job = Job.query.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+
+    match = Match.query.filter_by(user_id=user.id, job_id=job_id).first()
+    if not match:
+        match = Match(user_id=user.id, job_id=job_id, is_match=bool(is_match_flag))
+        db.session.add(match)
+    else:
+        match.is_match = bool(is_match_flag)
+    db.session.commit()
+    return jsonify({'status': 'success', 'match_id': match.id}), 200
+
 
 
 # --- JOB SEEKER ROUTES ---
@@ -429,6 +1061,42 @@ def download_resume(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
 
 
+@app.route('/api/download-resume/<filename>', methods=['GET'])
+@jwt_required
+def api_download_resume(filename):
+    """Download a resume file (JWT auth version)"""
+    user = _get_request_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    # Security: Only allow downloading your own resume or if you're a company viewing a candidate
+    if user.user_type == 'jobseeker':
+        # Job seekers can only download their own resume
+        analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+        if not analysis or analysis.filename != filename:
+            return jsonify({'error': 'Forbidden'}), 403
+    elif user.user_type == 'company':
+        # Companies can download resumes of candidates who applied to their jobs
+        # Extract user_id from filename (format: {user_id}_{original_filename})
+        try:
+            user_id = int(filename.split('_')[0])
+            # Check if this user applied to any of the company's jobs
+            job_ids = [job.id for job in user.jobs]
+            match = Match.query.filter(
+                Match.user_id == user_id,
+                Match.job_id.in_(job_ids),
+                Match.is_match == True
+            ).first()
+            if not match:
+                return jsonify({'error': 'Forbidden - candidate not found'}), 403
+        except (ValueError, IndexError):
+            return jsonify({'error': 'Invalid filename'}), 404
+    else:
+        return jsonify({'error': 'Forbidden'}), 403
+    
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
+
+
 @app.route('/matches')
 @jobseeker_required
 def matches():
@@ -610,23 +1278,270 @@ def candidate_profile(user_id):
                          match=match)
 
 
+### JSON API equivalents for company actions (accept JWT or session)
+
+
+@app.route('/api/company/dashboard', methods=['GET'])
+@jwt_required
+def api_company_dashboard():
+    """Return simple dashboard stats for the authenticated company."""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    total_jobs = Job.query.filter_by(company_id=user.id).count()
+    job_ids = [job.id for job in user.jobs]
+    total_applicants = Match.query.filter(
+        Match.job_id.in_(job_ids),
+        Match.is_match == True
+    ).count() if job_ids else 0
+
+    recent_matches = Match.query.filter(
+        Match.job_id.in_(job_ids),
+        Match.is_match == True
+    ).order_by(Match.created_at.desc()).limit(5).all() if job_ids else []
+
+    recent = []
+    for m in recent_matches:
+        recent.append({
+            'match_id': m.id,
+            'user_id': m.user_id,
+            'job_id': m.job_id,
+            'job_title': m.job.title,
+            'created_at': m.created_at.isoformat(),
+        })
+
+    return jsonify({'status': 'success', 'total_jobs': total_jobs, 'total_applicants': total_applicants, 'recent_matches': recent}), 200
+
+
+@app.route('/api/company/post-job', methods=['POST'])
+@jwt_required
+def api_company_post_job():
+    """Create a new job via JSON payload. Quick and dirty."""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json() or {}
+    title = data.get('title')
+    location = data.get('location')
+    description = data.get('description')
+    requirements = data.get('requirements', '')
+    salary_range = data.get('salary_range', '')
+    job_type = data.get('job_type', 'Full-time')
+    apply_url = data.get('apply_url', '')
+
+    if not title or not description:
+        return jsonify({'error': 'Missing title or description'}), 400
+
+    new_job = Job(
+        company_id=user.id,
+        title=title,
+        location=location,
+        description_text=description,
+        requirements=requirements,
+        salary_range=salary_range,
+        job_type=job_type,
+        apply_url=apply_url
+    )
+    db.session.add(new_job)
+    db.session.commit()
+    return jsonify({'status': 'success', 'job_id': new_job.id}), 201
+
+
+@app.route('/api/company/my-jobs', methods=['GET'])
+@jwt_required
+def api_company_my_jobs():
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    jobs = Job.query.filter_by(company_id=user.id).order_by(Job.created_at.desc()).all()
+    out = []
+    for j in jobs:
+        out.append({
+            'id': j.id,
+            'title': j.title,
+            'location': j.location,
+            'salary_range': j.salary_range,
+            'job_type': j.job_type,
+            'created_at': j.created_at.isoformat(),
+            'applications_closed': j.applications_closed
+        })
+    return jsonify({'status': 'success', 'jobs': out}), 200
+
+
+@app.route('/api/company/applicants', methods=['GET'])
+@jwt_required
+def api_company_applicants():
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Optional filter by specific job_id
+    job_id_param = request.args.get('job_id', type=int)
+    
+    job_ids = [job.id for job in user.jobs]
+    
+    # If job_id specified, filter to just that job
+    if job_id_param:
+        if job_id_param not in job_ids:
+            return jsonify({'error': 'Unauthorized - job not found'}), 403
+        job_ids = [job_id_param]
+    
+    if job_ids:
+        matches = Match.query.filter(
+            Match.job_id.in_(job_ids),
+            Match.is_match == True,
+            Match.application_status != 'rejected'
+        ).order_by(Match.created_at.desc()).all()
+    else:
+        matches = []
+
+    applicants = []
+    for match in matches:
+        user_obj = match.user
+        resume = ResumeAnalysis.query.filter_by(user_id=user_obj.id).first()
+        
+        # Prepare resume data with all needed fields
+        resume_data = None
+        if resume and resume.extracted_json:
+            try:
+                parsed_json = json.loads(resume.extracted_json)
+                resume_data = {
+                    'analysis_score': resume.analysis_score,
+                    'profile_summary_text': resume.profile_summary_text,
+                    **parsed_json  # Includes skills, education, work_experience, etc.
+                }
+            except:
+                resume_data = None
+        
+        # Ensure match_score exists (compute & persist for older matches)
+        match_score = match.match_score
+        if match_score is None and resume and resume.extracted_json:
+            try:
+                resume_json = json.loads(resume.extracted_json)
+                job_obj = Job.query.get(match.job_id)
+                if job_obj:
+                    new_score = calculate_match_score(resume_json, job_obj.description_text or '', job_obj.requirements or '')
+                    match_score = int(new_score) if new_score is not None else None
+                    match.match_score = match_score
+                    db.session.add(match)
+                    db.session.commit()
+            except Exception as e:
+                print(f"Error computing backfill match score for applicant list: {e}")
+
+        applicants.append({
+            'match_id': match.id,
+            'user_id': user_obj.id,
+            'full_name': user_obj.full_name,
+            'email': user_obj.email,
+            'job_id': match.job_id,
+            'job_title': match.job.title,
+            'status': match.application_status,
+            'matched_at': match.created_at.isoformat(),
+            'resume': resume_data,
+            'match_score': match_score
+        })
+
+    return jsonify({'status': 'success', 'applicants': applicants}), 200
+
+
+@app.route('/api/company/candidate/<int:user_id>', methods=['GET'])
+@jwt_required
+def api_company_candidate_profile(user_id):
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    candidate = User.query.get_or_404(user_id)
+    analysis = ResumeAnalysis.query.filter_by(user_id=candidate.id).first()
+    job_ids = [job.id for job in user.jobs]
+    match = Match.query.filter(
+        Match.user_id == user_id,
+        Match.job_id.in_(job_ids),
+        Match.is_match == True
+    ).first()
+
+    # Prepare analysis data
+    analysis_data = None
+    if analysis and analysis.extracted_json:
+        try:
+            parsed = json.loads(analysis.extracted_json)
+            analysis_data = {
+                'filename': analysis.filename,
+                'analysis_score': analysis.analysis_score,
+                'ats_score': analysis.ats_score,
+                'target_job_role': analysis.target_job_role,
+                'profile_summary_text': analysis.profile_summary_text,
+                'extracted_json': parsed
+            }
+        except:
+            analysis_data = None
+    
+    # We intentionally do not compute a 'match_score' here; the profile should not expose the score.
+
+    return jsonify({
+        'status': 'success',
+        'user': {
+            'id': candidate.id,
+            'full_name': candidate.full_name,
+            'email': candidate.email,
+            'location': candidate.location,
+            'phone': candidate.phone,
+            'linkedin_url': candidate.linkedin_url,
+            'github_url': candidate.github_url,
+            'portfolio_url': candidate.portfolio_url,
+            'career_objective': candidate.career_objective,
+            'projects': candidate.projects,
+            'training_courses': candidate.training_courses,
+            'work_samples': candidate.work_samples
+        },
+        'analysis': analysis_data,
+        'match': {
+            'id': match.id,
+            'job_id': match.job_id,
+            'application_status': match.application_status
+        } if match else None
+    }), 200
+
+
 # --- API ENDPOINTS ---
 
 @app.route('/api/get-next-job', methods=['GET'])
-@jobseeker_required
+@jwt_required
 def get_next_job():
-    """Get the next unswiped job for the user"""
+    """Get the next unswiped job for the user (JWT-only)"""
+    user = getattr(g, 'jwt_user', None)
+    if not user or user.user_type != 'jobseeker':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     # Get list of job IDs user has already swiped on
-    swiped_job_ids = [match.job_id for match in current_user.matches]
+    swiped_job_ids = [match.job_id for match in user.matches]
     
     # Find one active job that isn't in the swiped list and applications are open
     next_job = Job.query.filter(
         Job.id.notin_(swiped_job_ids),
         Job.is_active == True,
-        Job.applications_closed == False  # NEW: Only show jobs with open applications
+        Job.applications_closed == False
     ).first()
     
     if next_job:
+        # Calculate AI-enhanced match score
+        match_score = None
+        try:
+            resume_analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+            if resume_analysis and resume_analysis.extracted_json:
+                resume_data = json.loads(resume_analysis.extracted_json)
+                match_score = calculate_match_score(
+                    resume_data=resume_data,
+                    job_description=next_job.description_text or '',
+                    job_requirements=next_job.requirements or ''
+                )
+        except Exception as e:
+            print(f"Error calculating match score: {e}")
+            match_score = None
+        
         return jsonify({
             'jobId': next_job.id,
             'title': next_job.title,
@@ -635,15 +1550,20 @@ def get_next_job():
             'description': next_job.description_text,
             'jobType': next_job.job_type,
             'salaryRange': next_job.salary_range,
-            'applyUrl': next_job.apply_url
+            'applyUrl': next_job.apply_url,
+            'matchScore': match_score
         })
     else:
         return jsonify({'error': 'No more jobs available'}), 404
 
 @app.route('/api/swipe', methods=['POST'])
-@jobseeker_required
+@jwt_required
 def swipe():
-    """Record a user's swipe on a job"""
+    """Record a user's swipe on a job (JWT-only)"""
+    user = getattr(g, 'jwt_user', None)
+    if not user or user.user_type != 'jobseeker':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     job_id = data.get('jobId')
     is_like = data.get('isLike')
@@ -652,29 +1572,49 @@ def swipe():
         return jsonify({'error': 'Missing jobId'}), 400
     
     # Check if match already exists
-    existing_match = Match.query.filter_by(user_id=current_user.id, job_id=job_id).first()
+    existing_match = Match.query.filter_by(user_id=user.id, job_id=job_id).first()
     
     if not existing_match:
         new_match = Match(
-            user_id=current_user.id,
+            user_id=user.id,
             job_id=job_id,
             is_match=is_like
         )
+        # Compute and persist match_score at creation time if possible
+        try:
+            resume_analysis = ResumeAnalysis.query.filter_by(user_id=user.id).first()
+            if resume_analysis and resume_analysis.extracted_json:
+                resume_data = json.loads(resume_analysis.extracted_json)
+                job_obj = Job.query.get(job_id)
+                if job_obj:
+                    computed_score = calculate_match_score(
+                        resume_data=resume_data,
+                        job_description=job_obj.description_text or '',
+                        job_requirements=job_obj.requirements or ''
+                    )
+                    new_match.match_score = int(computed_score) if computed_score is not None else None
+        except Exception as e:
+            print(f"Error computing match score on swipe creation: {e}")
+
         db.session.add(new_match)
         db.session.commit()
-        return jsonify({'status': 'success', 'action': 'created'})
+        return jsonify({'status': 'success', 'action': 'created', 'match_score': new_match.match_score}), 200
     else:
         return jsonify({'status': 'success', 'action': 'already_exists'})
 
 
 @app.route('/api/company/delete-job/<int:job_id>', methods=['DELETE'])
-@company_required
+@jwt_required
 def delete_job(job_id):
     """Delete a job posting"""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     job = Job.query.get_or_404(job_id)
     
     # Verify this company owns the job
-    if job.company_id != current_user.id:
+    if job.company_id != user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
     db.session.delete(job)
@@ -684,13 +1624,17 @@ def delete_job(job_id):
 
 
 @app.route('/api/company/update-job/<int:job_id>', methods=['PUT'])
-@company_required
+@jwt_required
 def update_job(job_id):
     """Update a job posting"""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     job = Job.query.get_or_404(job_id)
     
     # Verify this company owns the job
-    if job.company_id != current_user.id:
+    if job.company_id != user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
     data = request.get_json()
@@ -716,12 +1660,94 @@ def update_job(job_id):
     return jsonify({'status': 'success', 'message': 'Job updated successfully'})
 
 
+@app.route('/api/company/recompute-match-score', methods=['POST'])
+@jwt_required
+def api_company_recompute_match_score():
+    """Recompute and persist match_score for a single match (company-only)"""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json() or {}
+    match_id = data.get('match_id')
+    if not match_id:
+        return jsonify({'error': 'Missing match_id'}), 400
+
+    match = Match.query.get(match_id)
+    if not match:
+        return jsonify({'error': 'Match not found'}), 404
+
+    # Verify the company owns the job related to this match
+    if match.job and match.job.company_id != user.id:
+        return jsonify({'error': 'Unauthorized to modify this match'}), 403
+
+    try:
+        resume = ResumeAnalysis.query.filter_by(user_id=match.user_id).first()
+        if not resume or not resume.extracted_json:
+            return jsonify({'error': 'No resume available for this user'}), 404
+
+        resume_data = json.loads(resume.extracted_json)
+        job_obj = Job.query.get(match.job_id)
+        if not job_obj:
+            return jsonify({'error': 'Job not found'}), 404
+
+        new_score = calculate_match_score(resume_data=resume_data, job_description=job_obj.description_text or '', job_requirements=job_obj.requirements or '')
+        match.match_score = int(new_score) if new_score is not None else None
+        db.session.add(match)
+        db.session.commit()
+
+        return jsonify({'status': 'success', 'match_id': match_id, 'match_score': match.match_score}), 200
+    except Exception as e:
+        print(f"Error recomputing match score: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/company/recompute-job-match-scores', methods=['POST'])
+@jwt_required
+def api_company_recompute_job_match_scores():
+    """Bulk recompute match_scores for a company job; returns count of updated matches"""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json() or {}
+    job_id = data.get('job_id')
+    if not job_id:
+        return jsonify({'error': 'Missing job_id'}), 400
+
+    job = Job.query.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    if job.company_id != user.id:
+        return jsonify({'error': 'Unauthorized - job not owned by company'}), 403
+
+    matches = Match.query.filter_by(job_id=job_id).all()
+    updated = 0
+    for m in matches:
+        try:
+            resume = ResumeAnalysis.query.filter_by(user_id=m.user_id).first()
+            if resume and resume.extracted_json:
+                resume_data = json.loads(resume.extracted_json)
+                rescore = calculate_match_score(resume_data=resume_data, job_description=job.description_text or '', job_requirements=job.requirements or '')
+                m.match_score = int(rescore) if rescore is not None else None
+                db.session.add(m)
+                updated += 1
+        except Exception as e:
+            print(f"Error recomputing for match {m.id}: {e}")
+    db.session.commit()
+    return jsonify({'status': 'success', 'job_id': job_id, 'updated': updated}), 200
+
+
 # --- NEW API ENDPOINTS FOR ENHANCED FEATURES ---
 
 @app.route('/api/company/update-application-status', methods=['PUT'])
-@company_required
+@jwt_required
 def update_application_status():
     """Company can accept or reject an application"""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     match_id = data.get('match_id')
     new_status = data.get('status')  # 'accepted' or 'rejected'
@@ -733,7 +1759,7 @@ def update_application_status():
     job = Job.query.get_or_404(match.job_id)
     
     # Verify this company owns the job
-    if job.company_id != current_user.id:
+    if job.company_id != user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
     if new_status not in ['pending', 'accepted', 'rejected']:
@@ -750,9 +1776,13 @@ def update_application_status():
 
 
 @app.route('/api/company/close-applications', methods=['PUT'])
-@company_required
+@jwt_required
 def close_applications():
     """Company can close applications for a job"""
+    user = _get_request_user()
+    if not user or user.user_type != 'company':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     job_id = data.get('job_id')
     should_close = data.get('close', True)
@@ -763,7 +1793,7 @@ def close_applications():
     job = Job.query.get_or_404(job_id)
     
     # Verify this company owns the job
-    if job.company_id != current_user.id:
+    if job.company_id != user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
     job.applications_closed = should_close
@@ -793,6 +1823,21 @@ def hide_match(match_id):
     return jsonify({'status': 'success', 'message': 'Job hidden from matches'})
 
 
+@app.route('/api/jwt/hide-match/<int:match_id>', methods=['PUT'])
+@jwt_required
+def jwt_hide_match(match_id):
+    """JWT-compatible endpoint for hiding a match"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    match = Match.query.get_or_404(match_id)
+    if match.user_id != user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    match.is_hidden_by_user = True
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Job hidden from matches'})
+
+
 @app.route('/api/unhide-match/<int:match_id>', methods=['PUT'])
 @login_required
 def unhide_match(match_id):
@@ -806,6 +1851,21 @@ def unhide_match(match_id):
     match.is_hidden_by_user = False
     db.session.commit()
     
+    return jsonify({'status': 'success', 'message': 'Job restored to matches'})
+
+
+@app.route('/api/jwt/unhide-match/<int:match_id>', methods=['PUT'])
+@jwt_required
+def jwt_unhide_match(match_id):
+    """JWT-compatible endpoint for unhiding a match"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    match = Match.query.get_or_404(match_id)
+    if match.user_id != user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    match.is_hidden_by_user = False
+    db.session.commit()
     return jsonify({'status': 'success', 'message': 'Job restored to matches'})
 
 
@@ -824,6 +1884,23 @@ def reapply_to_job(job_id):
     match.is_hidden_by_user = False
     db.session.commit()
     
+    return jsonify({'status': 'success', 'message': 'Application submitted successfully'})
+
+
+@app.route('/api/jwt/reapply/<int:job_id>', methods=['POST'])
+@jwt_required
+def jwt_reapply_to_job(job_id):
+    """JWT-compatible endpoint for re-applying to a skipped job"""
+    user = getattr(g, 'jwt_user', None)
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    match = Match.query.filter_by(user_id=user.id, job_id=job_id).first()
+    if not match:
+        return jsonify({'error': 'Match not found'}), 404
+    match.is_match = True
+    match.application_status = 'pending'
+    match.is_hidden_by_user = False
+    db.session.commit()
     return jsonify({'status': 'success', 'message': 'Application submitted successfully'})
 
 
@@ -920,6 +1997,151 @@ def api_generate_career_roadmap():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# LATEX RESUME BUILDER ENDPOINTS
+# ============================================
+
+@app.route('/api/latex-resumes', methods=['GET'])
+@jwt_required
+def get_latex_resumes():
+    """Get all LaTeX resumes for the current user"""
+    user = _get_request_user()
+    
+    resumes = LatexResume.query.filter_by(user_id=user.id).order_by(LatexResume.updated_at.desc()).all()
+    
+    return jsonify([{
+        'id': resume.id,
+        'title': resume.title,
+        'template_name': resume.template_name,
+        'is_active': resume.is_active,
+        'created_at': resume.created_at.isoformat(),
+        'updated_at': resume.updated_at.isoformat()
+    } for resume in resumes])
+
+
+@app.route('/api/latex-resumes/<int:resume_id>', methods=['GET'])
+@jwt_required
+def get_latex_resume(resume_id):
+    """Get a specific LaTeX resume"""
+    user = _get_request_user()
+    
+    resume = LatexResume.query.filter_by(id=resume_id, user_id=user.id).first()
+    if not resume:
+        return jsonify({'error': 'Resume not found'}), 404
+    
+    return jsonify({
+        'id': resume.id,
+        'title': resume.title,
+        'latex_code': resume.latex_code,
+        'compiled_pdf_url': resume.compiled_pdf_url,
+        'template_name': resume.template_name,
+        'is_active': resume.is_active,
+        'created_at': resume.created_at.isoformat(),
+        'updated_at': resume.updated_at.isoformat()
+    })
+
+
+@app.route('/api/latex-resumes', methods=['POST'])
+@jwt_required
+def create_latex_resume():
+    """Create a new LaTeX resume"""
+    user = _get_request_user()
+    data = request.get_json()
+    
+    title = data.get('title', 'Untitled Resume')
+    template_name = data.get('template_name', 'default')
+    
+    # Use the default template
+    latex_code = DEFAULT_TEMPLATE
+    
+    new_resume = LatexResume(
+        user_id=user.id,
+        title=title,
+        latex_code=latex_code,
+        template_name=template_name,
+        is_active=False
+    )
+    
+    db.session.add(new_resume)
+    db.session.commit()
+    
+    return jsonify({
+        'id': new_resume.id,
+        'title': new_resume.title,
+        'latex_code': new_resume.latex_code,
+        'template_name': new_resume.template_name,
+        'is_active': new_resume.is_active,
+        'created_at': new_resume.created_at.isoformat(),
+        'updated_at': new_resume.updated_at.isoformat()
+    }), 201
+
+
+@app.route('/api/latex-resumes/<int:resume_id>', methods=['PUT'])
+@jwt_required
+def update_latex_resume(resume_id):
+    """Update a LaTeX resume"""
+    user = _get_request_user()
+    data = request.get_json()
+    
+    resume = LatexResume.query.filter_by(id=resume_id, user_id=user.id).first()
+    if not resume:
+        return jsonify({'error': 'Resume not found'}), 404
+    
+    # Update fields if provided
+    if 'title' in data:
+        resume.title = data['title']
+    if 'latex_code' in data:
+        resume.latex_code = data['latex_code']
+    if 'compiled_pdf_url' in data:
+        resume.compiled_pdf_url = data['compiled_pdf_url']
+    
+    resume.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'id': resume.id,
+        'title': resume.title,
+        'updated_at': resume.updated_at.isoformat()
+    })
+
+
+@app.route('/api/latex-resumes/<int:resume_id>', methods=['DELETE'])
+@jwt_required
+def delete_latex_resume(resume_id):
+    """Delete a LaTeX resume"""
+    user = _get_request_user()
+    
+    resume = LatexResume.query.filter_by(id=resume_id, user_id=user.id).first()
+    if not resume:
+        return jsonify({'error': 'Resume not found'}), 404
+    
+    db.session.delete(resume)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+
+@app.route('/api/latex-resumes/<int:resume_id>/set-active', methods=['POST'])
+@jwt_required
+def set_active_latex_resume(resume_id):
+    """Set a resume as the active one"""
+    user = _get_request_user()
+    
+    resume = LatexResume.query.filter_by(id=resume_id, user_id=user.id).first()
+    if not resume:
+        return jsonify({'error': 'Resume not found'}), 404
+    
+    # Deactivate all other resumes
+    LatexResume.query.filter_by(user_id=user.id).update({'is_active': False})
+    
+    # Activate this resume
+    resume.is_active = True
+    db.session.commit()
+    
+    return jsonify({'success': True})
 
 
 # --- MAIN EXECUTION ---

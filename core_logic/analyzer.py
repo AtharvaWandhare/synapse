@@ -20,14 +20,26 @@ def extract_resume_data(resume_text: str) -> dict | None:
     # Use the latest, fastest Flash model for this task
     model = genai.GenerativeModel('gemini-flash-latest')
     
-    # A simple, direct prompt is more efficient for the Flash model
+    # A comprehensive prompt to extract all resume data
     prompt = f"""
-    You are an expert resume parser. Extract the content from the following resume text.
+    You are an expert resume parser. Extract ALL content from the following resume text.
     
-    Return ONLY a valid JSON object with the following exact keys: 
-    "personal_details", "professional_summary", "skills", "work_experience", and "education".
+    Return ONLY a valid JSON object with the following exact keys:
+    {{
+      "personal_details": {{"name": "", "email": "", "phone": "", "location": "", "linkedin": "", "github": "", "portfolio": ""}},
+      "professional_summary": "",
+      "skills": [],
+      "work_experience": [{{"position": "", "company": "", "duration": "", "location": "", "responsibilities": []}}],
+      "education": [{{"degree": "", "institution": "", "year": "", "gpa": "", "location": ""}}],
+      "certifications": [{{"name": "", "issuer": "", "date": "", "credential_id": ""}}],
+      "projects": [{{"title": "", "description": "", "technologies": [], "link": ""}}],
+      "achievements": [],
+      "languages": [],
+      "volunteering": [],
+      "publications": []
+    }}
 
-    If a value for any field is not found, use null. For lists, use an empty list [].
+    Extract ALL information available. If a field is not found, use null for strings, [] for arrays, {{}} for objects.
 
     Important: Return ONLY the JSON object, no markdown formatting, no code blocks, no explanations.
 
