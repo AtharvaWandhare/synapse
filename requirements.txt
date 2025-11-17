@@ -4,9 +4,14 @@ Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
 Flask-Bcrypt==1.0.1
 Flask-CORS==4.0.0
+Flask-SocketIO==5.3.5
 
 # JWT support for API auth
 PyJWT==2.8.0
+
+# WebSocket support
+python-socketio==5.10.0
+python-engineio==4.8.0
 
 # Database
 SQLAlchemy==2.0.23

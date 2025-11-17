@@ -8,6 +8,7 @@ from flask_login import LoginManager, login_user, login_required, logout_user, c
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit, join_room, leave_room
 import jwt
 import re
 from functools import wraps as _wraps
@@ -15,7 +16,7 @@ from flask import g
 from datetime import timedelta
 
 # Import database models
-from models import db, User, Company, ResumeAnalysis, Job, Match, CareerRoadmap, LatexResume
+from models import db, User, Company, ResumeAnalysis, Job, Match, CareerRoadmap, LatexResume, Conversation, Message
 
 # Import resume analyzer core logic
 from core_logic.extractor import extract_text_from_pdf
@@ -44,6 +45,15 @@ bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message_category = 'info'
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*",
+    async_mode='threading',
+    logger=True,
+    engineio_logger=True,
+    ping_timeout=10,
+    ping_interval=5
+)
 
 # Enable CORS for quick frontend integration (allow credentials)
 CORS(app, supports_credentials=True)
@@ -88,7 +98,10 @@ def jwt_required(fn):
                 except:
                     user = None
                 if user:
+                    # expose commonly used user info to request context
                     g.jwt_user = user
+                    g.user_id = user.id
+                    g.user_type = user.user_type
                     return fn(*args, **kwargs)
         return jsonify({'error': 'Unauthorized'}), 401
     return wrapper
@@ -315,6 +328,88 @@ def api_jwt_login():
         return jsonify({'status': 'success', 'token': token, 'user_id': company.id, 'user_type': company.user_type}), 200
 
     return jsonify({'error': 'Invalid email or password'}), 401
+
+
+@app.route('/api/register/jobseeker', methods=['POST'])
+def api_register_jobseeker():
+    """Register a new job seeker via API."""
+    data = request.get_json() or {}
+    email = data.get('email')
+    password = data.get('password')
+    name = data.get('name')
+    
+    if not email or not password or not name:
+        return jsonify({'error': 'Missing required fields: email, password, name'}), 400
+    
+    # Check if email already exists
+    if User.query.filter_by(email=email).first() or Company.query.filter_by(email=email).first():
+        return jsonify({'error': 'Email already registered'}), 409
+    
+    # Create new user
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+    new_user = User(
+        email=email,
+        password_hash=hashed_password,
+        full_name=name,
+        user_type='jobseeker'
+    )
+    
+    db.session.add(new_user)
+    db.session.commit()
+    
+    # Auto-login: create JWT token
+    token = create_jwt_token(new_user.id, new_user.user_type)
+    
+    return jsonify({
+        'status': 'success',
+        'message': 'Account created successfully',
+        'token': token,
+        'user_id': new_user.id,
+        'user_type': new_user.user_type
+    }), 201
+
+
+@app.route('/api/register/company', methods=['POST'])
+def api_register_company():
+    """Register a new company via API."""
+    data = request.get_json() or {}
+    email = data.get('email')
+    password = data.get('password')
+    company_name = data.get('company_name')
+    website = data.get('website', '')
+    description = data.get('description', '')
+    
+    if not email or not password or not company_name:
+        return jsonify({'error': 'Missing required fields: email, password, company_name'}), 400
+    
+    # Check if email already exists
+    if User.query.filter_by(email=email).first() or Company.query.filter_by(email=email).first():
+        return jsonify({'error': 'Email already registered'}), 409
+    
+    # Create new company
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+    new_company = Company(
+        email=email,
+        password_hash=hashed_password,
+        company_name=company_name,
+        description=description,
+        website=website,
+        user_type='company'
+    )
+    
+    db.session.add(new_company)
+    db.session.commit()
+    
+    # Auto-login: create JWT token
+    token = create_jwt_token(new_company.id, new_company.user_type)
+    
+    return jsonify({
+        'status': 'success',
+        'message': 'Company account created successfully',
+        'token': token,
+        'user_id': new_company.id,
+        'user_type': new_company.user_type
+    }), 201
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -2144,9 +2239,273 @@ def set_active_latex_resume(resume_id):
     return jsonify({'success': True})
 
 
+# ==================== CHAT API ENDPOINTS ====================
+
+@app.route('/api/chat/conversations', methods=['GET'])
+@jwt_required
+def get_conversations():
+    """Get all conversations for the logged-in user"""
+    user_id = g.user_id
+    user_type = g.user_type
+    
+    if user_type == 'jobseeker':
+        conversations = Conversation.query.filter_by(user_id=user_id).order_by(Conversation.last_message_at.desc()).all()
+    elif user_type == 'company':
+        conversations = Conversation.query.filter_by(company_id=user_id).order_by(Conversation.last_message_at.desc()).all()
+    else:
+        return jsonify({'error': 'Invalid user type'}), 400
+    
+    result = []
+    for conv in conversations:
+        # Get the match details
+        match = Match.query.get(conv.match_id)
+        job = Job.query.get(match.job_id) if match else None
+        
+        # Get last message
+        last_message = Message.query.filter_by(conversation_id=conv.id).order_by(Message.created_at.desc()).first()
+        
+        # Get the other party's name
+        if user_type == 'jobseeker':
+            company = Company.query.get(conv.company_id)
+            other_party_name = company.company_name if company else "Unknown Company"
+        else:
+            user = User.query.get(conv.user_id)
+            other_party_name = user.full_name if user else "Unknown User"
+        
+        result.append({
+            'id': conv.id,
+            'match_id': conv.match_id,
+            'job_title': job.title if job else "Unknown Job",
+            'other_party_name': other_party_name,
+            'last_message': last_message.content if last_message else None,
+                'last_message_at': (last_message.created_at.isoformat() + 'Z') if last_message else conv.created_at.isoformat() + 'Z',
+                'created_at': conv.created_at.isoformat() + 'Z'
+        })
+    
+    return jsonify(result), 200
+
+
+@app.route('/api/chat/conversations/<int:conversation_id>/messages', methods=['GET'])
+@jwt_required
+def get_messages(conversation_id):
+    """Get all messages for a specific conversation"""
+    user_id = g.user_id
+    user_type = g.user_type
+    
+    # Verify the user has access to this conversation
+    conversation = Conversation.query.get_or_404(conversation_id)
+    
+    if user_type == 'jobseeker' and conversation.user_id != user_id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    elif user_type == 'company' and conversation.company_id != user_id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    # Get messages with pagination
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    
+    messages_query = Message.query.filter_by(conversation_id=conversation_id).order_by(Message.created_at.asc())
+    messages = messages_query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    result = [{
+        'id': msg.id,
+        'sender_type': msg.sender_type,
+        'sender_id': msg.sender_id,
+        'content': msg.content,
+        'created_at': msg.created_at.isoformat() + 'Z',
+        'is_own_message': (msg.sender_type == user_type and msg.sender_id == user_id)
+    } for msg in messages.items]
+    
+    return jsonify({
+        'messages': result,
+        'total': messages.total,
+        'page': messages.page,
+        'pages': messages.pages
+    }), 200
+
+
+@app.route('/api/chat/conversations', methods=['POST'])
+@jwt_required
+def create_conversation():
+    """Create a new conversation for an accepted match"""
+    user_id = g.user_id
+    user_type = g.user_type
+    
+    data = request.get_json() or {}
+    match_id = data.get('match_id')
+    
+    if not match_id:
+        return jsonify({'error': 'Missing match_id'}), 400
+    
+    # Get the match
+    match = Match.query.get(match_id)
+    if not match:
+        return jsonify({'error': 'Match not found'}), 404
+    
+    # Verify the match is accepted
+    if match.application_status != 'accepted':
+        return jsonify({'error': 'Can only chat with accepted applications'}), 403
+    
+    # Verify the user has access to this match
+    job = Job.query.get(match.job_id)
+    if user_type == 'jobseeker' and match.user_id != user_id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    elif user_type == 'company' and job.company_id != user_id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    # Check if conversation already exists
+    existing = Conversation.query.filter_by(match_id=match_id).first()
+    if existing:
+        return jsonify({
+            'id': existing.id,
+            'match_id': existing.match_id,
+            'created_at': existing.created_at.isoformat() + 'Z'
+        }), 200
+    
+    # Create new conversation
+    conversation = Conversation(
+        match_id=match_id,
+        company_id=job.company_id,
+        user_id=match.user_id
+    )
+    
+    db.session.add(conversation)
+    db.session.commit()
+    
+    return jsonify({
+        'id': conversation.id,
+        'match_id': conversation.match_id,
+        'created_at': conversation.created_at.isoformat() + 'Z'
+    }), 201
+
+
+# ==================== WEBSOCKET EVENTS ====================
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection"""
+    print(f'Client connected: {request.sid}')
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection"""
+    print(f'Client disconnected: {request.sid}')
+
+
+@socketio.on('join')
+def handle_join(data):
+    """Join a conversation room"""
+    conversation_id = data.get('conversation_id')
+    token = data.get('token')
+    
+    if not conversation_id or not token:
+        emit('error', {'message': 'Missing conversation_id or token'})
+        return
+    
+    # Verify JWT token using shared helper (keeps behavior consistent)
+    payload = decode_jwt_token(token)
+    if not payload:
+        emit('error', {'message': 'Invalid token'})
+        return
+    user_id = payload.get('user_id')
+    user_type = payload.get('user_type')
+    
+    # Verify access to conversation
+    conversation = Conversation.query.get(conversation_id)
+    if not conversation:
+        emit('error', {'message': 'Conversation not found'})
+        return
+    
+    if user_type == 'jobseeker' and conversation.user_id != user_id:
+        emit('error', {'message': 'Unauthorized'})
+        return
+    elif user_type == 'company' and conversation.company_id != user_id:
+        emit('error', {'message': 'Unauthorized'})
+        return
+    
+    # Join the room
+    room = f'conversation_{conversation_id}'
+    join_room(room)
+    print(f'User {user_id} ({user_type}) joined room {room}')
+    emit('joined', {'conversation_id': conversation_id})
+
+
+@socketio.on('leave')
+def handle_leave(data):
+    """Leave a conversation room"""
+    conversation_id = data.get('conversation_id')
+    
+    if not conversation_id:
+        return
+    
+    room = f'conversation_{conversation_id}'
+    leave_room(room)
+    print(f'Client {request.sid} left room {room}')
+
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    """Handle sending a new message"""
+    conversation_id = data.get('conversation_id')
+    content = data.get('content')
+    token = data.get('token')
+    
+    if not conversation_id or not content or not token:
+        emit('error', {'message': 'Missing required fields'})
+        return
+    
+    # Verify JWT token using shared helper (keeps behavior consistent)
+    payload = decode_jwt_token(token)
+    if not payload:
+        emit('error', {'message': 'Invalid token'})
+        return
+    user_id = payload.get('user_id')
+    user_type = payload.get('user_type')
+    
+    # Verify access to conversation
+    conversation = Conversation.query.get(conversation_id)
+    if not conversation:
+        emit('error', {'message': 'Conversation not found'})
+        return
+    
+    if user_type == 'jobseeker' and conversation.user_id != user_id:
+        emit('error', {'message': 'Unauthorized'})
+        return
+    elif user_type == 'company' and conversation.company_id != user_id:
+        emit('error', {'message': 'Unauthorized'})
+        return
+    
+    # Create and save the message
+    message = Message(
+        conversation_id=conversation_id,
+        sender_type=user_type,
+        sender_id=user_id,
+        content=content
+    )
+    
+    db.session.add(message)
+    
+    # Update conversation last_message_at
+    conversation.last_message_at = datetime.utcnow()
+    
+    db.session.commit()
+    
+    # Broadcast to all users in the room
+    room = f'conversation_{conversation_id}'
+    emit('new_message', {
+        'id': message.id,
+        'conversation_id': conversation_id,
+        'sender_type': message.sender_type,
+        'sender_id': message.sender_id,
+        'content': message.content,
+        'created_at': message.created_at.isoformat() + 'Z'
+    }, room=room)
+
+
 # --- MAIN EXECUTION ---
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         print("Database tables created successfully!")
-    app.run(debug=True, port=5000)
+    socketio.run(app, debug=True, port=5000)

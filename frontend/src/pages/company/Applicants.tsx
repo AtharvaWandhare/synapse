@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import api from '@/lib/api'
 import { toast } from 'sonner'
-import { Mail, User, CheckCircle2, XCircle, Clock, RefreshCw } from 'lucide-react'
+import { Mail, User, CheckCircle2, XCircle, Clock, RefreshCw, MessageCircle } from 'lucide-react'
+import { createOrGetConversation } from '@/utils/chat'
 
 type Applicant = {
   match_id: number
@@ -22,8 +23,18 @@ type Applicant = {
 
 export default function CompanyApplicants() {
   const { jobId } = useParams<{ jobId: string }>()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [applicants, setApplicants] = useState<Applicant[]>([])
+
+  const handleStartChat = async (matchId: number) => {
+    const conversationId = await createOrGetConversation(matchId)
+    if (conversationId) {
+      navigate(`/chat?conversation=${conversationId}`)
+    } else {
+      toast.error('Failed to start chat')
+    }
+  }
 
   const load = async () => {
     setLoading(true)
@@ -297,6 +308,17 @@ export default function CompanyApplicants() {
                         Email
                       </a>
                     </Button>
+                    {a.status === 'accepted' && (
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => handleStartChat(a.match_id)}
+                      >
+                        <MessageCircle className="h-4 w-4 mr-2" />
+                        Chat
+                      </Button>
+                    )}
                     {(!a.status || a.status === 'pending') && (
                       <div className="flex gap-2 pt-2">
                         <Button 

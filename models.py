@@ -198,3 +198,40 @@ class LatexResume(db.Model):
     
     def __repr__(self):
         return f'<LatexResume {self.title} User:{self.user_id}>'
+
+
+class Conversation(db.Model):
+    """Chat conversation between a company and a job seeker"""
+    __tablename__ = 'conversations'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    match_id = db.Column(db.Integer, db.ForeignKey('matches.id'), nullable=False, unique=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    last_message_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    match = db.relationship('Match', backref=db.backref('conversation', uselist=False))
+    company = db.relationship('Company', backref=db.backref('conversations', lazy=True))
+    user = db.relationship('User', backref=db.backref('conversations', lazy=True))
+    messages = db.relationship('Message', backref='conversation', cascade='all, delete-orphan', order_by='Message.created_at')
+    
+    def __repr__(self):
+        return f'<Conversation {self.id} Match:{self.match_id}>'
+
+
+class Message(db.Model):
+    """Individual chat message in a conversation"""
+    __tablename__ = 'messages'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversations.id'), nullable=False)
+    sender_type = db.Column(db.String(20), nullable=False)  # 'company' or 'user'
+    sender_id = db.Column(db.Integer, nullable=False)  # ID of company or user
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<Message {self.id} in Conversation:{self.conversation_id}>'

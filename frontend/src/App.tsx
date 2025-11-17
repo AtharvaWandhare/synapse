@@ -2,14 +2,19 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { useAuth } from './context/AuthContext'
+import { SocketProvider } from './context/SocketContext'
 import { NavigationMenu, NavigationMenuList, NavigationMenuItem, NavigationMenuLink } from './components/ui/navigation-menu'
 import { Toaster } from '@/components/ui/sonner'
 
+import Home from './pages/Home'
 import Login from './pages/Login'
+import RegisterJobSeeker from './pages/RegisterJobSeeker'
+import RegisterCompany from './pages/RegisterCompany'
 import Profile from './pages/Profile'
 import UploadResume from './pages/UploadResume'
 import Jobs from './pages/Jobs'
 import Matches from './pages/Matches'
+import Chat from './pages/Chat'
 import Roadmap from './pages/Roadmap'
 import RoadmapDetail from './pages/RoadmapDetail'
 import ResumeList from './pages/ResumeList'
@@ -42,6 +47,11 @@ function App() {
     const location = useLocation()
     const pathname = location.pathname
 
+    // Don't show header on landing or registration pages
+    if (pathname === '/' || pathname === '/home' || pathname.startsWith('/register')) {
+      return null
+    }
+
     if (!isAuthenticated) return null
 
     return (
@@ -67,6 +77,11 @@ function App() {
                       <NavigationMenuItem>
                         <NavigationMenuLink asChild data-active={pathname.startsWith('/matches')}>
                           <Link to="/matches" className="px-4 py-2 rounded-md text-sm font-medium hover:bg-muted">Matches</Link>
+                        </NavigationMenuLink>
+                      </NavigationMenuItem>
+                      <NavigationMenuItem>
+                        <NavigationMenuLink asChild data-active={pathname.startsWith('/chat')}>
+                          <Link to="/chat" className="px-4 py-2 rounded-md text-sm font-medium hover:bg-muted">Chat</Link>
                         </NavigationMenuLink>
                       </NavigationMenuItem>
                       <NavigationMenuItem>
@@ -108,6 +123,11 @@ function App() {
                           <Link to="/company/applicants" className="px-4 py-2 rounded-md text-sm font-medium hover:bg-muted">Applicants</Link>
                         </NavigationMenuLink>
                       </NavigationMenuItem>
+                      <NavigationMenuItem>
+                        <NavigationMenuLink asChild data-active={pathname.startsWith('/chat')}>
+                          <Link to="/chat" className="px-4 py-2 rounded-md text-sm font-medium hover:bg-muted">Chat</Link>
+                        </NavigationMenuLink>
+                      </NavigationMenuItem>
                     </>
                   )}
                 </NavigationMenuList>
@@ -126,17 +146,23 @@ function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-background">
-        {/* Navigation */}
-        {isAuthenticated && <HeaderNav isAuthenticated={isAuthenticated} userType={userType} logout={logout} />}
+      <SocketProvider>
+        <div className="min-h-screen bg-background">
+          {/* Navigation */}
+          <HeaderNav isAuthenticated={isAuthenticated} userType={userType} logout={logout} />
 
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          
-          {/* Job Seeker Routes */}
-          <Route path="/discover" element={<ProtectedRoute allowedTypes={['jobseeker']}><Jobs /></ProtectedRoute>} />
-          <Route path="/matches" element={<ProtectedRoute allowedTypes={['jobseeker']}><Matches /></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute allowedTypes={['jobseeker']}><Profile /></ProtectedRoute>} />
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/home" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register/jobseeker" element={<RegisterJobSeeker />} />
+            <Route path="/register/company" element={<RegisterCompany />} />
+            
+            {/* Job Seeker Routes */}
+            <Route path="/discover" element={<ProtectedRoute allowedTypes={['jobseeker']}><Jobs /></ProtectedRoute>} />
+            <Route path="/matches" element={<ProtectedRoute allowedTypes={['jobseeker']}><Matches /></ProtectedRoute>} />
+            <Route path="/chat" element={<ProtectedRoute allowedTypes={['jobseeker', 'company']}><Chat /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute allowedTypes={['jobseeker']}><Profile /></ProtectedRoute>} />
           <Route path="/roadmap" element={<ProtectedRoute allowedTypes={['jobseeker']}><Roadmap /></ProtectedRoute>} />
           <Route path="/roadmap/:id" element={<ProtectedRoute allowedTypes={['jobseeker']}><RoadmapDetail /></ProtectedRoute>} />
           <Route path="/resume-builder" element={<ProtectedRoute allowedTypes={['jobseeker']}><ResumeList /></ProtectedRoute>} />
@@ -151,10 +177,11 @@ function App() {
           <Route path="/company/candidate/:id" element={<ProtectedRoute allowedTypes={['company']}><CompanyCandidateProfile /></ProtectedRoute>} />
           
           {/* Default redirect */}
-          <Route path="/" element={isAuthenticated ? (userType === 'jobseeker' ? <Navigate to="/discover" replace /> : <Navigate to="/company/dashboard" replace />) : <Navigate to="/login" replace />} />
+          <Route path="/" element={isAuthenticated ? (userType === 'jobseeker' ? <Navigate to="/discover" replace /> : <Navigate to="/company/dashboard" replace />) : <Navigate to="/home" replace />} />
         </Routes>
       </div>
       <Toaster />
+      </SocketProvider>
     </BrowserRouter>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { MessageCircle } from 'lucide-react'
+import { createOrGetConversation } from '@/utils/chat'
 import {
   Select,
   SelectContent,
@@ -35,6 +38,7 @@ type Match = {
 type TabType = 'all' | 'saved' | 'applied' | 'accepted' | 'skipped'
 
 export default function Matches() {
+  const navigate = useNavigate()
   const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,6 +48,15 @@ export default function Matches() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null)
+
+  const handleStartChat = async (matchId: number) => {
+    const conversationId = await createOrGetConversation(matchId)
+    if (conversationId) {
+      navigate(`/chat?conversation=${conversationId}`)
+    } else {
+      toast.error('Failed to start chat')
+    }
+  }
 
   useEffect(() => {
     loadMatches()
@@ -337,15 +350,23 @@ export default function Matches() {
                   </div>
 
                   {/* Status and Apply button */}
-                  <div className="flex items-center justify-between pt-3">
+                  <div className="flex items-center justify-between gap-2 pt-3">
                     <span className="text-sm text-muted-foreground capitalize">
                       {match.application_status === 'pending' ? 'Saved' : match.application_status}
                     </span>
-                    <Button size="sm" asChild>
-                      <a href={match.apply_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                        Apply
-                      </a>
-                    </Button>
+                    <div className="flex gap-2">
+                      {match.application_status === 'accepted' && (
+                        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleStartChat(match.id); }}>
+                          <MessageCircle className="h-4 w-4 mr-1" />
+                          Chat
+                        </Button>
+                      )}
+                      <Button size="sm" asChild>
+                        <a href={match.apply_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                          Apply
+                        </a>
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
